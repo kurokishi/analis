@@ -5,7 +5,5 @@ numpy
 plotly
 matplotlib
 scikit-learn
-keras
-tensorflow
 fpdf
 xlsxwriter
