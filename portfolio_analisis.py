@@ -116,18 +116,21 @@ class PortfolioAnalyzer:
         future_ma7 = []
         future_ma30 = []
         
+        # PERBAIKAN: Menggunakan pendekatan yang lebih sederhana untuk moving averages
         for i in range(days):
+            # Untuk MA7
             if i < 7:
-                # Use available data for first 7 days
-                future_ma7.append(np.mean([*data['Price'].iloc[-7+i:], *[last_ma7]*(7-i)))
+                # Gunakan data historis yang tersedia
+                future_ma7.append(np.mean(data['Price'].iloc[-(7-i):]))
             else:
-                # Use predicted prices for full window
-                future_ma7.append(np.mean(predictions[-7:]))
+                # Gunakan nilai terakhir
+                future_ma7.append(last_ma7)
                 
+            # Untuk MA30
             if i < 30:
-                future_ma30.append(np.mean([*data['Price'].iloc[-30+i:], *[last_ma30]*(30-i)))
+                future_ma30.append(np.mean(data['Price'].iloc[-(30-i):]))
             else:
-                future_ma30.append(np.mean(predictions[-30:]))
+                future_ma30.append(last_ma30)
         
         # Predict
         future_X = pd.DataFrame({
@@ -297,6 +300,8 @@ def main():
     
     # Stock Details
     st.subheader("📋 Stock Details")
+    # PERBAIKAN: Menghitung kolom Unrealized %
+    pm.df['Unrealized %'] = (pm.df['Unrealized'] / pm.df['Stock Value']) * 100
     st.dataframe(pm.df[['Stock', 'Balance', 'Avg Price', 'Market Price', 
                         'Unrealized', 'Unrealized %']].sort_values('Unrealized', ascending=False),
                  height=300)
