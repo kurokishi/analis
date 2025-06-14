@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import yfinance as yf
 import time
-from scipy.stats import norm  # Ditambahkan untuk modul analisis risiko
+from scipy.stats import norm
 
 # ======================
 # DATA MANAGEMENT MODULE
@@ -25,7 +25,7 @@ class PortfolioManager:
     @staticmethod
     def load_portfolio():
         """Initialize portfolio data"""
-        return pd.DataFrame({
+        df = pd.DataFrame({
             'Stock': ['AADI', 'ADRO', 'ANTM', 'BFIN', 'BJBR', 'BSSR', 'LPPF', 'PGAS', 'PTBA', 'UNVR', 'WIIM'],
             'Ticker': ['AADI.JK', 'ADRO.JK', 'ANTM.JK', 'BFIN.JK', 'BJBR.JK', 'BSSR.JK', 'LPPF.JK', 'PGAS.JK', 'PTBA.JK', 'UNVR.JK', 'WIIM.JK'],
             'Lot Balance': [5.0, 17.0, 15.0, 30.0, 23.0, 11.0, 5.0, 10.0, 4.0, 60.0, 5.0],
@@ -35,6 +35,10 @@ class PortfolioManager:
             'Market Price': [7225, 2200, 3110, 905, 850, 4400, 1745, 1820, 2890, 1730, 835],
             'Unrealized': [-37500, -688500, 2530000, -525000, -678500, -98000, 22500, 220000, 196000, -782500, -18215]
         })
+        
+        # PERBAIKAN: Tambahkan kolom Market Value di awal
+        df['Market Value'] = df['Balance'] * df['Market Price']
+        return df
     
     def generate_historical_data(self):
         """Generate realistic historical price data"""
@@ -320,9 +324,10 @@ class PortfolioVisualizer:
         
         # Add confidence interval
         if 'upper' in forecast and 'lower' in forecast:
+            # PERBAIKAN: Hapus .tolist() karena sudah berupa list
             fig.add_trace(go.Scatter(
                 x=forecast_df['Date'].tolist() + forecast_df['Date'].tolist()[::-1],
-                y=forecast['upper'].tolist() + forecast['lower'].tolist()[::-1],
+                y=forecast['upper'] + forecast['lower'][::-1],  # PERBAIKAN DI SINI
                 fill='toself',
                 fillcolor='rgba(100, 150, 255, 0.2)',
                 line=dict(color='rgba(255,255,255,0)'),
@@ -578,8 +583,9 @@ def main():
             return ''
         return f'color: {color}'
     
-    styled_df = formatted_df.style.applymap(color_negative_red, 
-                                           subset=['Daily Change', 'Unrealized', 'Unrealized %'])
+    # PERBAIKAN: Ganti applymap dengan map untuk menghindari warning
+    styled_df = formatted_df.style.map(color_negative_red, 
+                                      subset=['Daily Change', 'Unrealized', 'Unrealized %'])
     
     st.dataframe(styled_df, height=400, use_container_width=True)
     
