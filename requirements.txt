@@ -7,5 +7,4 @@ matplotlib
 scikit-learn
 fpdf
 xlsxwriter
-tensorflow
 sklearn
