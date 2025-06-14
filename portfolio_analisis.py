@@ -8,6 +8,8 @@ from sklearn.pipeline import make_pipeline
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
+import yfinance as yf
+import time
 
 # ======================
 # DATA MANAGEMENT MODULE
@@ -17,18 +19,19 @@ class PortfolioManager:
         self.df = self.load_portfolio()
         self.simulated_data = self.generate_historical_data()
         self.new_stocks = self.get_new_stocks()
+        self.last_update = datetime.now()
         
     @staticmethod
     def load_portfolio():
         """Initialize portfolio data"""
         return pd.DataFrame({
             'Stock': ['AADI', 'ADRO', 'ANTM', 'BFIN', 'BJBR', 'BSSR', 'LPPF', 'PGAS', 'PTBA', 'UNVR', 'WIIM'],
+            'Ticker': ['AADI.JK', 'ADRO.JK', 'ANTM.JK', 'BFIN.JK', 'BJBR.JK', 'BSSR.JK', 'LPPF.JK', 'PGAS.JK', 'PTBA.JK', 'UNVR.JK', 'WIIM.JK'],
             'Lot Balance': [5.0, 17.0, 15.0, 30.0, 23.0, 11.0, 5.0, 10.0, 4.0, 60.0, 5.0],
             'Balance': [500, 1700, 1500, 3000, 2300, 1100, 500, 1000, 400, 6000, 500],
             'Avg Price': [7300, 2605, 1423, 1080, 1145, 4489, 1700, 1600, 2400, 1860, 871],
             'Stock Value': [3650000, 4428500, 2135000, 3240000, 2633500, 4938000, 850000, 1600000, 960000, 11162500, 435714],
             'Market Price': [7225, 2200, 3110, 905, 850, 4400, 1745, 1820, 2890, 1730, 835],
-            'Market Value': [3612500, 3740000, 4665000, 2715000, 1955000, 4840000, 872500, 1820000, 1156000, 10380000, 417500],
             'Unrealized': [-37500, -688500, 2530000, -525000, -678500, -98000, 22500, 220000, 196000, -782500, -18215]
         })
     
@@ -59,12 +62,77 @@ class PortfolioManager:
         """Get new stock recommendations"""
         return pd.DataFrame({
             'Stock': ['TLKM', 'BBCA', 'BMRI', 'ASII'],
+            'Ticker': ['TLKM.JK', 'BBCA.JK', 'BMRI.JK', 'ASII.JK'],
             'Sector': ['Telecom', 'Banking', 'Banking', 'Automotive'],
             'Dividend Yield': [4.5, 3.2, 3.8, 2.9],
             'Growth Rate': [8.0, 10.0, 9.5, 7.0],
             'Current Price': [3500, 9500, 6000, 4500],
             'Risk Level': ['Low', 'Medium', 'Medium', 'High']
         })
+    
+    def update_real_time_prices(self):
+        """Fetch real-time market prices using Yahoo Finance API"""
+        try:
+            # Create a progress bar
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            # Get unique tickers
+            all_tickers = list(self.df['Ticker']) + list(self.new_stocks['Ticker'])
+            
+            # Create a dictionary to store prices
+            prices = {}
+            
+            # Fetch prices
+            for i, ticker in enumerate(all_tickers):
+                status_text.text(f"Fetching data for {ticker}...")
+                progress_bar.progress((i + 1) / len(all_tickers))
+                
+                try:
+                    stock_data = yf.Ticker(ticker)
+                    hist = stock_data.history(period='1d')
+                    
+                    if not hist.empty:
+                        current_price = hist['Close'].iloc[-1]
+                        prices[ticker] = current_price
+                    else:
+                        # Fallback to existing price if no data
+                        if ticker in self.df['Ticker'].values:
+                            prices[ticker] = self.df[self.df['Ticker'] == ticker]['Market Price'].iloc[0]
+                        elif ticker in self.new_stocks['Ticker'].values:
+                            prices[ticker] = self.new_stocks[self.new_stocks['Ticker'] == ticker]['Current Price'].iloc[0]
+                except Exception as e:
+                    st.warning(f"Error fetching data for {ticker}: {str(e)}")
+                    # Use existing price as fallback
+                    if ticker in self.df['Ticker'].values:
+                        prices[ticker] = self.df[self.df['Ticker'] == ticker]['Market Price'].iloc[0]
+                    elif ticker in self.new_stocks['Ticker'].values:
+                        prices[ticker] = self.new_stocks[self.new_stocks['Ticker'] == ticker]['Current Price'].iloc[0]
+            
+            # Update portfolio with real-time prices
+            for idx, row in self.df.iterrows():
+                ticker = row['Ticker']
+                if ticker in prices:
+                    self.df.at[idx, 'Market Price'] = prices[ticker]
+            
+            # Update new stocks with real-time prices
+            for idx, row in self.new_stocks.iterrows():
+                ticker = row['Ticker']
+                if ticker in prices:
+                    self.new_stocks.at[idx, 'Current Price'] = prices[ticker]
+            
+            # Recalculate market values
+            self.df['Market Value'] = self.df['Balance'] * self.df['Market Price']
+            self.df['Unrealized'] = self.df['Market Value'] - self.df['Stock Value']
+            
+            self.last_update = datetime.now()
+            return True
+        except Exception as e:
+            st.error(f"Error updating prices: {str(e)}")
+            return False
+        finally:
+            progress_bar.empty()
+            status_text.empty()
 
 
 # ===================
@@ -116,14 +184,12 @@ class PortfolioAnalyzer:
         future_ma7 = []
         future_ma30 = []
         
-        # PERBAIKAN: Menggunakan pendekatan yang lebih sederhana untuk moving averages
+        # Sederhanakan perhitungan moving averages
         for i in range(days):
             # Untuk MA7
             if i < 7:
-                # Gunakan data historis yang tersedia
                 future_ma7.append(np.mean(data['Price'].iloc[-(7-i):]))
             else:
-                # Gunakan nilai terakhir
                 future_ma7.append(last_ma7)
                 
             # Untuk MA30
@@ -280,6 +346,22 @@ def main():
     st.title("📊 Advanced Portfolio Analysis Dashboard")
     st.caption("Interactive tool for portfolio management and stock analysis")
     
+    # Real-time price update section
+    st.header("🔄 Real-time Market Data")
+    col1, col2 = st.columns([1, 3])
+    
+    with col1:
+        if st.button("Update Market Prices", type="primary", help="Fetch latest market prices from Yahoo Finance"):
+            if pm.update_real_time_prices():
+                st.success("Market prices updated successfully!")
+                st.session_state.portfolio = pm
+                st.rerun()
+    
+    with col2:
+        update_time = pm.last_update.strftime("%Y-%m-%d %H:%M:%S")
+        st.caption(f"Last update: {update_time}")
+        st.progress(100, text="Ready for update")
+    
     # Portfolio Summary
     st.header("📈 Portfolio Summary")
     summary = analyzer.portfolio_summary()
@@ -298,13 +380,42 @@ def main():
     with col2:
         st.plotly_chart(visualizer.performance_bar(pm.df), use_container_width=True)
     
-    # Stock Details
-    st.subheader("📋 Stock Details")
-    # PERBAIKAN: Menghitung kolom Unrealized %
+    # Stock Details with real-time data
+    st.header("📋 Real-time Stock Details")
+    
+    # Calculate performance metrics
     pm.df['Unrealized %'] = (pm.df['Unrealized'] / pm.df['Stock Value']) * 100
-    st.dataframe(pm.df[['Stock', 'Balance', 'Avg Price', 'Market Price', 
-                        'Unrealized', 'Unrealized %']].sort_values('Unrealized', ascending=False),
-                 height=300)
+    pm.df['Daily Change'] = (pm.df['Market Price'] / pm.df['Avg Price'] - 1) * 100
+    pm.df['Current Value'] = pm.df['Balance'] * pm.df['Market Price']
+    
+    # Format and display the dataframe
+    formatted_df = pm.df[['Stock', 'Balance', 'Avg Price', 'Market Price', 
+                          'Daily Change', 'Current Value', 'Unrealized', 'Unrealized %']].copy()
+    
+    # Format columns
+    formatted_df['Avg Price'] = formatted_df['Avg Price'].apply(lambda x: f"Rp {x:,.0f}")
+    formatted_df['Market Price'] = formatted_df['Market Price'].apply(lambda x: f"Rp {x:,.0f}")
+    formatted_df['Current Value'] = formatted_df['Current Value'].apply(lambda x: f"Rp {x:,.0f}")
+    formatted_df['Unrealized'] = formatted_df['Unrealized'].apply(lambda x: f"Rp {x:,.0f}")
+    formatted_df['Daily Change'] = formatted_df['Daily Change'].apply(lambda x: f"{x:.2f}%")
+    formatted_df['Unrealized %'] = formatted_df['Unrealized %'].apply(lambda x: f"{x:.2f}%")
+    
+    # Apply color coding
+    def color_negative_red(val):
+        if isinstance(val, str) and '%' in val:
+            num_val = float(val.replace('%', ''))
+            color = 'red' if num_val < 0 else 'green'
+        elif isinstance(val, str) and 'Rp' in val:
+            num_val = float(val.replace('Rp', '').replace(',', '').strip())
+            color = 'red' if num_val < 0 else 'green'
+        else:
+            return ''
+        return f'color: {color}'
+    
+    styled_df = formatted_df.style.applymap(color_negative_red, 
+                                           subset=['Daily Change', 'Unrealized', 'Unrealized %'])
+    
+    st.dataframe(styled_df, height=400, use_container_width=True)
     
     # Price Prediction
     st.header("🔮 AI Price Prediction")
@@ -406,6 +517,7 @@ def main():
         
         new_row = pd.DataFrame({
             'Stock': [selected_new],
+            'Ticker': [new_stock['Ticker']],
             'Lot Balance': [shares / 100],
             'Balance': [shares],
             'Avg Price': [price],
