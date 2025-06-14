@@ -7,4 +7,3 @@ matplotlib
 scikit-learn
 fpdf
 xlsxwriter
-sklearn
