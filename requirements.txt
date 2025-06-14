@@ -7,3 +7,7 @@ matplotlib
 scikit-learn
 fpdf
 xlsxwriter
+tensorflow
+fpdf
+minmaxscaler
+sklearn
