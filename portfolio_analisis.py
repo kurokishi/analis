@@ -38,7 +38,7 @@ class PortfolioManager:
     def generate_historical_data(self):
         """Generate realistic historical price data"""
         np.random.seed(42)
-        dates = pd.date_range(end='2025-05-31', periods=100, freq='D')
+        dates = pd.date_range(end='2025-05-31', periods=1000, freq='D')
         data = {}
         
         for stock in self.df['Stock']:
@@ -330,6 +330,171 @@ class PortfolioVisualizer:
         
         return fig
 
+# ===================
+# RISK ANALYSIS MODULE
+# ===================
+class RiskAnalyzer:
+    def __init__(self, portfolio_manager):
+        self.pm = portfolio_manager
+        self.portfolio_returns = self.calculate_portfolio_returns()
+        
+    def calculate_stock_returns(self):
+        """Calculate daily returns for each stock from historical data"""
+        returns_data = {}
+        for stock, data in self.pm.simulated_data.items():
+            df = data.copy()
+            df['Return'] = df['Price'].pct_change().dropna()
+            returns_data[stock] = df
+        return returns_data
+    
+    def calculate_portfolio_returns(self):
+        """Calculate historical portfolio returns based on current weights"""
+        # Get returns for each stock
+        returns_data = self.calculate_stock_returns()
+        
+        # Create a DataFrame for returns
+        returns_df = pd.DataFrame()
+        for stock in self.pm.df['Stock']:
+            if stock in returns_data:
+                returns_df[stock] = returns_data[stock]['Return']
+        
+        # If there's no data, return None
+        if returns_df.empty:
+            return None
+        
+        # Get current market value for each stock to calculate weights
+        total_value = self.pm.df['Market Value'].sum()
+        weights = self.pm.df.set_index('Stock')['Market Value'] / total_value
+        
+        # Align weights with the columns in returns_df
+        weights = weights[returns_df.columns].values
+        
+        # Calculate portfolio returns (weighted average)
+        portfolio_returns = returns_df.dot(weights)
+        return portfolio_returns.dropna()
+    
+    def portfolio_volatility(self, annualize=True):
+        """Calculate portfolio volatility (standard deviation of returns)"""
+        if self.portfolio_returns is None:
+            return 0
+        vol = self.portfolio_returns.std()
+        if annualize:
+            vol = vol * np.sqrt(252)  # annualized
+        return vol
+    
+    def value_at_risk(self, confidence_level=0.95, method='historical'):
+        """Calculate Value at Risk (VaR) for the portfolio"""
+        if self.portfolio_returns is None:
+            return 0
+        if method == 'historical':
+            # Historical VaR: the (1-confidence_level) percentile of returns
+            return -np.percentile(self.portfolio_returns, 100*(1-confidence_level))
+        else:
+            # Parametric VaR (normal distribution)
+            mean = self.portfolio_returns.mean()
+            std = self.portfolio_returns.std()
+            z_score = norm.ppf(1-confidence_level)
+            return -(mean + z_score * std)
+    
+    def expected_shortfall(self, confidence_level=0.95):
+        """Calculate Expected Shortfall (ES) for the portfolio"""
+        if self.portfolio_returns is None:
+            return 0
+        var = self.value_at_risk(confidence_level, 'historical')
+        # ES is the average of losses beyond VaR
+        losses = -self.portfolio_returns
+        return losses[losses > var].mean()
+    
+    def beta_analysis(self):
+        """Calculate beta coefficients relative to market index (using JKSE)"""
+        try:
+            # Download market data (JKSE index)
+            market = yf.download('^JKSE', period='1y')['Close'].pct_change().dropna()
+            
+            beta_values = {}
+            for stock in self.pm.df['Stock']:
+                if stock in self.pm.simulated_data:
+                    stock_returns = self.pm.simulated_data[stock]['Price'].pct_change().dropna()
+                    # Align dates
+                    common_dates = stock_returns.index.intersection(market.index)
+                    if len(common_dates) > 10:  # Minimum data points
+                        cov_matrix = np.cov(
+                            stock_returns.loc[common_dates], 
+                            market.loc[common_dates]
+                        )
+                        beta = cov_matrix[0, 1] / cov_matrix[1, 1]
+                        beta_values[stock] = beta
+            return beta_values
+        except:
+            return {}
+    
+    def stress_test(self, scenario='crisis'):
+        """Stress test portfolio under different market conditions"""
+        scenarios = {
+            'crisis': -0.30,  # 30% market decline
+            'recession': -0.15,  # 15% market decline
+            'bull': 0.20,  # 20% market rise
+            'correction': -0.10  # 10% correction
+        }
+        
+        if scenario not in scenarios:
+            return None
+        
+        # Get beta values
+        betas = self.beta_analysis()
+        
+        # Calculate expected returns under scenario
+        scenario_return = scenarios[scenario]
+        portfolio_impact = 0
+        stock_impacts = {}
+        
+        for idx, row in self.pm.df.iterrows():
+            stock = row['Stock']
+            beta = betas.get(stock, 1.0)  # Default beta=1 if not available
+            expected_return = beta * scenario_return
+            current_value = row['Market Value']
+            impact = current_value * expected_return
+            portfolio_impact += impact
+            stock_impacts[stock] = {
+                'Beta': beta,
+                'Expected Return': expected_return,
+                'Impact': impact
+            }
+        
+        return {
+            'scenario': scenario,
+            'portfolio_impact': portfolio_impact,
+            'stock_impacts': stock_impacts
+        }
+    
+    def diversification_metrics(self):
+        """Calculate diversification metrics for the portfolio"""
+        # Get returns data
+        returns_data = self.calculate_stock_returns()
+        returns_df = pd.DataFrame()
+        for stock, data in returns_data.items():
+            returns_df[stock] = data['Return']
+        
+        # Calculate correlation matrix
+        corr_matrix = returns_df.corr()
+        
+        # Calculate average correlation
+        mask = np.triu(np.ones(corr_matrix.shape), k=1).astype(bool)
+        avg_correlation = corr_matrix.where(mask).mean().mean()
+        
+        # Calculate diversification ratio
+        weighted_vol = self.pm.df['Market Value'] / self.pm.df['Market Value'].sum()
+        weighted_vol = weighted_vol.values
+        individual_vol = returns_df.std().values
+        portfolio_vol = self.portfolio_volatility(annualize=False)
+        
+        diversification_ratio = np.sum(weighted_vol * individual_vol) / portfolio_vol
+        
+        return {
+            'correlation_matrix': corr_matrix,
+            'average_correlation': avg_correlation,
+            'diversification_ratio': diversification_ratio
+        }
 
 # ===================
 # STREAMLIT APP
@@ -567,5 +732,70 @@ def main():
     st.dataframe(pm.df[['Stock', 'Balance', 'Avg Price', 'Market Price', 'Unrealized']], 
                  height=300)
 
+# Risk Analysis Section
+st.header("📉 Risk Analysis")
+risk_analyzer = RiskAnalyzer(pm)
+
+# Basic risk metrics
+col1, col2, col3 = st.columns(3)
+col1.metric("Portfolio Volatility (Annualized)", f"{risk_analyzer.portfolio_volatility()*100:.2f}%")
+col2.metric("95% VaR (1-day)", f"Rp {risk_analyzer.value_at_risk(0.95)*risk_analyzer.pm.df['Market Value'].sum():,.0f}")
+col3.metric("95% Expected Shortfall (1-day)", f"Rp {risk_analyzer.expected_shortfall(0.95)*risk_analyzer.pm.df['Market Value'].sum():,.0f}")
+
+# Beta Analysis
+st.subheader("Beta Exposure")
+betas = risk_analyzer.beta_analysis()
+if betas:
+    beta_df = pd.DataFrame.from_dict(betas, orient='index', columns=['Beta']).reset_index()
+    beta_df.columns = ['Stock', 'Beta']
+    fig = px.bar(beta_df, x='Stock', y='Beta', title='Stock Beta Relative to Market Index',
+                 color='Beta', color_continuous_scale='RdYlGn')
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    st.warning("Could not calculate beta values. Market data unavailable.")
+
+# Stress Testing
+st.subheader("Stress Testing")
+scenario = st.selectbox("Select Scenario", ['crisis', 'recession', 'correction', 'bull'])
+
+if st.button("Run Stress Test", key='stress_test'):
+    results = risk_analyzer.stress_test(scenario)
+    if results:
+        st.markdown(f"### {scenario.capitalize()} Scenario Results")
+        col1, col2 = st.columns(2)
+        portfolio_value = pm.df['Market Value'].sum()
+        impact_pct = (results['portfolio_impact'] / portfolio_value) * 100
+        
+        col1.metric("Portfolio Value Impact", 
+                   f"Rp {portfolio_value + results['portfolio_impact']:,.0f}",
+                   f"{impact_pct:.2f}%")
+        col2.metric("Estimated Loss/Gain", 
+                   f"Rp {results['portfolio_impact']:,.0f}")
+        
+        # Show individual stock impacts
+        impact_df = pd.DataFrame.from_dict(results['stock_impacts'], orient='index')
+        impact_df = impact_df.reset_index().rename(columns={'index': 'Stock'})
+        impact_df['Impact %'] = (impact_df['Impact'] / pm.df.set_index('Stock')['Market Value']) * 100
+        
+        fig = px.bar(impact_df, x='Stock', y='Impact %', 
+                     title='Impact by Stock',
+                     color='Impact %', 
+                     color_continuous_scale='RdYlGn' if scenario == 'bull' else 'RdYlGn_r')
+        st.plotly_chart(fig, use_container_width=True)
+
+# Diversification Analysis
+st.subheader("Diversification Metrics")
+div_metrics = risk_analyzer.diversification_metrics()
+
+col1, col2 = st.columns(2)
+col1.metric("Average Correlation", f"{div_metrics['average_correlation']:.4f}")
+col2.metric("Diversification Ratio", f"{div_metrics['diversification_ratio']:.2f}")
+
+st.markdown("**Correlation Matrix**")
+fig = px.imshow(div_metrics['correlation_matrix'], 
+               text_auto=".2f", 
+               color_continuous_scale='RdYlGn',
+               title='Stock Correlation Matrix')
+st.plotly_chart(fig, use_container_width=True)
 if __name__ == "__main__":
     main()
