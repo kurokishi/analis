@@ -10,6 +10,7 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import yfinance as yf
 import time
+from scipy.stats import norm  # Ditambahkan untuk modul analisis risiko
 
 # ======================
 # DATA MANAGEMENT MODULE
@@ -85,7 +86,7 @@ class PortfolioManager:
             
             # Fetch prices
             for i, ticker in enumerate(all_tickers):
-                status_text.text(f"Fetching data for {ticker}...")
+                status_text.text(f"Mengambil data untuk {ticker}...")
                 progress_bar.progress((i + 1) / len(all_tickers))
                 
                 try:
@@ -102,7 +103,7 @@ class PortfolioManager:
                         elif ticker in self.new_stocks['Ticker'].values:
                             prices[ticker] = self.new_stocks[self.new_stocks['Ticker'] == ticker]['Current Price'].iloc[0]
                 except Exception as e:
-                    st.warning(f"Error fetching data for {ticker}: {str(e)}")
+                    st.warning(f"Error mengambil data untuk {ticker}: {str(e)}")
                     # Use existing price as fallback
                     if ticker in self.df['Ticker'].values:
                         prices[ticker] = self.df[self.df['Ticker'] == ticker]['Market Price'].iloc[0]
@@ -128,7 +129,7 @@ class PortfolioManager:
             self.last_update = datetime.now()
             return True
         except Exception as e:
-            st.error(f"Error updating prices: {str(e)}")
+            st.error(f"Error memperbarui harga: {str(e)}")
             return False
         finally:
             progress_bar.empty()
@@ -284,7 +285,7 @@ class PortfolioVisualizer:
     def portfolio_pie(df):
         """Create portfolio composition pie chart"""
         fig = px.pie(df, values='Market Value', names='Stock', 
-                     title='Portfolio Composition', hole=0.4)
+                     title='Komposisi Portofolio', hole=0.4)
         fig.update_traces(textposition='inside', textinfo='percent+label')
         return fig
     
@@ -294,8 +295,8 @@ class PortfolioVisualizer:
         df = df.copy()
         df['Color'] = df['Unrealized'].apply(lambda x: 'green' if x >= 0 else 'red')
         fig = px.bar(df, x='Stock', y='Unrealized', color='Color',
-                     title='Unrealized Gain/Loss by Stock',
-                     labels={'Unrealized': 'Gain/Loss (Rp)'})
+                     title='Keuntungan/Rugi Belum Direalisasi per Saham',
+                     labels={'Unrealized': 'Keuntungan/Rugi (Rp)'})
         fig.update_layout(showlegend=False)
         return fig
     
@@ -314,18 +315,18 @@ class PortfolioVisualizer:
         combined = pd.concat([history, forecast_df])
         
         fig = px.line(combined, x='Date', y='Value', color='Type',
-                      title=f"Price Forecast for {stock}",
-                      labels={'Value': 'Price (Rp)'})
+                      title=f"Prediksi Harga untuk {stock}",
+                      labels={'Value': 'Harga (Rp)'})
         
         # Add confidence interval
-        if 'confidence' in forecast:
+        if 'upper' in forecast and 'lower' in forecast:
             fig.add_trace(go.Scatter(
                 x=forecast_df['Date'].tolist() + forecast_df['Date'].tolist()[::-1],
                 y=forecast['upper'].tolist() + forecast['lower'].tolist()[::-1],
                 fill='toself',
                 fillcolor='rgba(100, 150, 255, 0.2)',
                 line=dict(color='rgba(255,255,255,0)'),
-                name='Confidence Interval'
+                name='Interval Keyakinan'
             ))
         
         return fig
@@ -508,34 +509,34 @@ def main():
     analyzer = PortfolioAnalyzer(pm)
     visualizer = PortfolioVisualizer()
     
-    st.title("📊 Advanced Portfolio Analysis Dashboard")
-    st.caption("Interactive tool for portfolio management and stock analysis")
+    st.title("📊 Dashboard Analisis Portofolio Lanjutan")
+    st.caption("Alat interaktif untuk manajemen portofolio dan analisis saham")
     
     # Real-time price update section
-    st.header("🔄 Real-time Market Data")
+    st.header("🔄 Data Pasar Real-time")
     col1, col2 = st.columns([1, 3])
     
     with col1:
-        if st.button("Update Market Prices", type="primary", help="Fetch latest market prices from Yahoo Finance"):
+        if st.button("Perbarui Harga Pasar", type="primary", help="Ambil harga pasar terbaru dari Yahoo Finance"):
             if pm.update_real_time_prices():
-                st.success("Market prices updated successfully!")
+                st.success("Harga pasar berhasil diperbarui!")
                 st.session_state.portfolio = pm
                 st.rerun()
     
     with col2:
         update_time = pm.last_update.strftime("%Y-%m-%d %H:%M:%S")
-        st.caption(f"Last update: {update_time}")
-        st.progress(100, text="Ready for update")
+        st.caption(f"Pembaruan terakhir: {update_time}")
+        st.progress(100, text="Siap untuk pembaruan")
     
     # Portfolio Summary
-    st.header("📈 Portfolio Summary")
+    st.header("📈 Ringkasan Portofolio")
     summary = analyzer.portfolio_summary()
     
     col1, col2, col3 = st.columns(3)
-    col1.metric("Total Invested", f"Rp {summary['total_invested']:,.0f}")
-    col2.metric("Current Value", f"Rp {summary['total_market_value']:,.0f}", 
+    col1.metric("Total Investasi", f"Rp {summary['total_invested']:,.0f}")
+    col2.metric("Nilai Saat Ini", f"Rp {summary['total_market_value']:,.0f}", 
                 f"{summary['return_pct']:.2f}%")
-    col3.metric("Unrealized P&L", f"Rp {summary['total_unrealized']:,.0f}", 
+    col3.metric("Keuntungan/Rugi Belum Direalisasi", f"Rp {summary['total_unrealized']:,.0f}", 
                 f"{summary['return_pct']:.2f}%", delta_color="inverse")
     
     # Portfolio Charts
@@ -546,7 +547,7 @@ def main():
         st.plotly_chart(visualizer.performance_bar(pm.df), use_container_width=True)
     
     # Stock Details with real-time data
-    st.header("📋 Real-time Stock Details")
+    st.header("📋 Detail Saham Real-time")
     
     # Calculate performance metrics
     pm.df['Unrealized %'] = (pm.df['Unrealized'] / pm.df['Stock Value']) * 100
@@ -583,23 +584,23 @@ def main():
     st.dataframe(styled_df, height=400, use_container_width=True)
     
     # Price Prediction
-    st.header("🔮 AI Price Prediction")
+    st.header("🔮 Prediksi Harga AI")
     col1, col2 = st.columns([1, 2])
     
     with col1:
-        selected_stock = st.selectbox("Select Stock", pm.df['Stock'])
-        days = st.slider("Forecast Period (days)", 7, 90, 30)
+        selected_stock = st.selectbox("Pilih Saham", pm.df['Stock'])
+        days = st.slider("Periode Prediksi (hari)", 7, 90, 30)
         
     with col2:
         if selected_stock:
-            with st.spinner("Generating forecast..."):
+            with st.spinner("Membuat prediksi..."):
                 dates, predictions, last_pred = analyzer.predict_price(selected_stock, days)
                 
                 if predictions is not None:
                     current_price = pm.df[pm.df['Stock'] == selected_stock]['Market Price'].iloc[0]
                     change_pct = (last_pred / current_price - 1) * 100
                     
-                    st.metric(f"Predicted Price in {days} days", 
+                    st.metric(f"Harga Prediksi dalam {days} hari", 
                              f"Rp {last_pred:,.0f}",
                              f"{change_pct:.1f}%")
                     
@@ -620,12 +621,12 @@ def main():
                                   use_container_width=True)
     
     # What If Simulation
-    st.header("🎮 What If Scenario Analysis")
+    st.header("🎮 Analisis Skenario What If")
     col1, col2 = st.columns(2)
     
     with col1:
-        sim_stock = st.selectbox("Select Stock", pm.df['Stock'], key='sim_stock')
-        price_change = st.slider("Price Change (%)", -50.0, 50.0, 10.0, key='price_slider')
+        sim_stock = st.selectbox("Pilih Saham", pm.df['Stock'], key='sim_stock')
+        price_change = st.slider("Perubahan Harga (%)", -50.0, 50.0, 10.0, key='price_slider')
     
     with col2:
         if sim_stock:
@@ -635,16 +636,16 @@ def main():
                 new_value = result['new_total_market']
                 change = (new_value - current_value) / current_value * 100
                 
-                st.metric("Portfolio Value Impact", 
+                st.metric("Dampak Nilai Portofolio", 
                          f"Rp {new_value:,.0f}",
                          f"{change:.2f}%")
                 
-                st.metric("Unrealized P&L Impact", 
+                st.metric("Dampak Keuntungan/Rugi Belum Direalisasi", 
                          f"Rp {result['new_unrealized']:,.0f}",
                          f"{(result['new_unrealized'] - summary['total_unrealized'])/summary['total_invested']*100:.2f}%")
     
     # Buy/Sell Recommendations
-    st.header("💡 Trading Recommendations")
+    st.header("💡 Rekomendasi Beli/Jual")
     rec_df = analyzer.generate_recommendations()
     
     # Color coding for recommendations
@@ -664,19 +665,19 @@ def main():
     st.dataframe(styled_rec, height=400)
     
     # Portfolio Management
-    st.header("⚙️ Portfolio Management")
+    st.header("⚙️ Manajemen Portofolio")
     
     # Add new stock
-    st.subheader("Add New Stock")
+    st.subheader("Tambahkan Saham Baru")
     new_col1, new_col2 = st.columns([2, 1])
     
     with new_col1:
-        selected_new = st.selectbox("Select Stock", pm.new_stocks['Stock'])
+        selected_new = st.selectbox("Pilih Saham", pm.new_stocks['Stock'])
     
     with new_col2:
-        shares = st.number_input("Shares", min_value=1, value=100)
+        shares = st.number_input("Jumlah Saham", min_value=1, value=100)
     
-    if st.button("Add to Portfolio", key='add_stock'):
+    if st.button("Tambahkan ke Portofolio", key='add_stock'):
         new_stock = pm.new_stocks[pm.new_stocks['Stock'] == selected_new].iloc[0]
         price = new_stock['Current Price']
         
@@ -693,18 +694,18 @@ def main():
         })
         
         pm.df = pd.concat([pm.df, new_row], ignore_index=True)
-        st.success(f"Added {shares} shares of {selected_new} to portfolio!")
+        st.success(f"Berhasil menambahkan {shares} saham {selected_new} ke portofolio!")
         st.session_state.portfolio = pm
     
     # Portfolio modifications
-    st.subheader("Modify Holdings")
-    mod_stock = st.selectbox("Select Stock", pm.df['Stock'], key='mod_stock')
+    st.subheader("Modifikasi Kepemilikan")
+    mod_stock = st.selectbox("Pilih Saham", pm.df['Stock'], key='mod_stock')
     
     if mod_stock:
         current_balance = pm.df[pm.df['Stock'] == mod_stock]['Balance'].iloc[0]
-        new_balance = st.number_input("New Share Amount", min_value=0, value=int(current_balance))
+        new_balance = st.number_input("Jumlah Saham Baru", min_value=0, value=int(current_balance))
         
-        if st.button("Update Shares"):
+        if st.button("Perbarui Saham"):
             idx = pm.df[pm.df['Stock'] == mod_stock].index
             if not idx.empty:
                 row = pm.df.loc[idx]
@@ -717,85 +718,86 @@ def main():
                 pm.df.loc[idx, 'Market Value'] = new_balance * market_price
                 pm.df.loc[idx, 'Unrealized'] = pm.df.loc[idx, 'Market Value'] - pm.df.loc[idx, 'Stock Value']
                 
-                st.success(f"Updated {mod_stock} to {new_balance} shares!")
+                st.success(f"Berhasil memperbarui {mod_stock} menjadi {new_balance} saham!")
                 st.session_state.portfolio = pm
     
     # Remove stock
-    if st.button("Remove Selected Stock", type="primary"):
+    if st.button("Hapus Saham Terpilih", type="primary"):
         if mod_stock:
             pm.df = pm.df[pm.df['Stock'] != mod_stock]
-            st.success(f"Removed {mod_stock} from portfolio!")
+            st.success(f"Berhasil menghapus {mod_stock} dari portofolio!")
             st.session_state.portfolio = pm
     
     # Show current portfolio
-    st.subheader("Current Portfolio")
+    st.subheader("Portofolio Saat Ini")
     st.dataframe(pm.df[['Stock', 'Balance', 'Avg Price', 'Market Price', 'Unrealized']], 
                  height=300)
 
-# Risk Analysis Section
-st.header("📉 Risk Analysis")
-risk_analyzer = RiskAnalyzer(pm)
-
-# Basic risk metrics
-col1, col2, col3 = st.columns(3)
-col1.metric("Portfolio Volatility (Annualized)", f"{risk_analyzer.portfolio_volatility()*100:.2f}%")
-col2.metric("95% VaR (1-day)", f"Rp {risk_analyzer.value_at_risk(0.95)*risk_analyzer.pm.df['Market Value'].sum():,.0f}")
-col3.metric("95% Expected Shortfall (1-day)", f"Rp {risk_analyzer.expected_shortfall(0.95)*risk_analyzer.pm.df['Market Value'].sum():,.0f}")
-
-# Beta Analysis
-st.subheader("Beta Exposure")
-betas = risk_analyzer.beta_analysis()
-if betas:
-    beta_df = pd.DataFrame.from_dict(betas, orient='index', columns=['Beta']).reset_index()
-    beta_df.columns = ['Stock', 'Beta']
-    fig = px.bar(beta_df, x='Stock', y='Beta', title='Stock Beta Relative to Market Index',
-                 color='Beta', color_continuous_scale='RdYlGn')
-    st.plotly_chart(fig, use_container_width=True)
-else:
-    st.warning("Could not calculate beta values. Market data unavailable.")
-
-# Stress Testing
-st.subheader("Stress Testing")
-scenario = st.selectbox("Select Scenario", ['crisis', 'recession', 'correction', 'bull'])
-
-if st.button("Run Stress Test", key='stress_test'):
-    results = risk_analyzer.stress_test(scenario)
-    if results:
-        st.markdown(f"### {scenario.capitalize()} Scenario Results")
-        col1, col2 = st.columns(2)
-        portfolio_value = pm.df['Market Value'].sum()
-        impact_pct = (results['portfolio_impact'] / portfolio_value) * 100
-        
-        col1.metric("Portfolio Value Impact", 
-                   f"Rp {portfolio_value + results['portfolio_impact']:,.0f}",
-                   f"{impact_pct:.2f}%")
-        col2.metric("Estimated Loss/Gain", 
-                   f"Rp {results['portfolio_impact']:,.0f}")
-        
-        # Show individual stock impacts
-        impact_df = pd.DataFrame.from_dict(results['stock_impacts'], orient='index')
-        impact_df = impact_df.reset_index().rename(columns={'index': 'Stock'})
-        impact_df['Impact %'] = (impact_df['Impact'] / pm.df.set_index('Stock')['Market Value']) * 100
-        
-        fig = px.bar(impact_df, x='Stock', y='Impact %', 
-                     title='Impact by Stock',
-                     color='Impact %', 
-                     color_continuous_scale='RdYlGn' if scenario == 'bull' else 'RdYlGn_r')
+    # Risk Analysis Section
+    st.header("📉 Analisis Risiko")
+    risk_analyzer = RiskAnalyzer(pm)
+    
+    # Basic risk metrics
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Volatilitas Portofolio (Tahunan)", f"{risk_analyzer.portfolio_volatility()*100:.2f}%")
+    col2.metric("95% VaR (1-hari)", f"Rp {risk_analyzer.value_at_risk(0.95)*risk_analyzer.pm.df['Market Value'].sum():,.0f}")
+    col3.metric("95% Expected Shortfall (1-hari)", f"Rp {risk_analyzer.expected_shortfall(0.95)*risk_analyzer.pm.df['Market Value'].sum():,.0f}")
+    
+    # Beta Analysis
+    st.subheader("Eksposur Beta")
+    betas = risk_analyzer.beta_analysis()
+    if betas:
+        beta_df = pd.DataFrame.from_dict(betas, orient='index', columns=['Beta']).reset_index()
+        beta_df.columns = ['Saham', 'Beta']
+        fig = px.bar(beta_df, x='Saham', y='Beta', title='Beta Saham Relatif terhadap Indeks Pasar',
+                     color='Beta', color_continuous_scale='RdYlGn')
         st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.warning("Tidak dapat menghitung nilai beta. Data pasar tidak tersedia.")
+    
+    # Stress Testing
+    st.subheader("Uji Stres")
+    scenario = st.selectbox("Pilih Skenario", ['crisis', 'recession', 'correction', 'bull'])
+    
+    if st.button("Jalankan Uji Stres", key='stress_test'):
+        results = risk_analyzer.stress_test(scenario)
+        if results:
+            st.markdown(f"### Hasil Skenario {scenario.capitalize()}")
+            col1, col2 = st.columns(2)
+            portfolio_value = pm.df['Market Value'].sum()
+            impact_pct = (results['portfolio_impact'] / portfolio_value) * 100
+            
+            col1.metric("Dampak Nilai Portofolio", 
+                       f"Rp {portfolio_value + results['portfolio_impact']:,.0f}",
+                       f"{impact_pct:.2f}%")
+            col2.metric("Perkiraan Kerugian/Keuntungan", 
+                       f"Rp {results['portfolio_impact']:,.0f}")
+            
+            # Show individual stock impacts
+            impact_df = pd.DataFrame.from_dict(results['stock_impacts'], orient='index')
+            impact_df = impact_df.reset_index().rename(columns={'index': 'Saham'})
+            impact_df['Dampak %'] = (impact_df['Impact'] / pm.df.set_index('Stock')['Market Value']) * 100
+            
+            fig = px.bar(impact_df, x='Saham', y='Dampak %', 
+                         title='Dampak per Saham',
+                         color='Dampak %', 
+                         color_continuous_scale='RdYlGn' if scenario == 'bull' else 'RdYlGn_r')
+            st.plotly_chart(fig, use_container_width=True)
+    
+    # Diversification Analysis
+    st.subheader("Metrik Diversifikasi")
+    div_metrics = risk_analyzer.diversification_metrics()
+    
+    col1, col2 = st.columns(2)
+    col1.metric("Korelasi Rata-rata", f"{div_metrics['average_correlation']:.4f}")
+    col2.metric("Rasio Diversifikasi", f"{div_metrics['diversification_ratio']:.2f}")
+    
+    st.markdown("**Matriks Korelasi**")
+    fig = px.imshow(div_metrics['correlation_matrix'], 
+                   text_auto=".2f", 
+                   color_continuous_scale='RdYlGn',
+                   title='Matriks Korelasi Saham')
+    st.plotly_chart(fig, use_container_width=True)
 
-# Diversification Analysis
-st.subheader("Diversification Metrics")
-div_metrics = risk_analyzer.diversification_metrics()
-
-col1, col2 = st.columns(2)
-col1.metric("Average Correlation", f"{div_metrics['average_correlation']:.4f}")
-col2.metric("Diversification Ratio", f"{div_metrics['diversification_ratio']:.2f}")
-
-st.markdown("**Correlation Matrix**")
-fig = px.imshow(div_metrics['correlation_matrix'], 
-               text_auto=".2f", 
-               color_continuous_scale='RdYlGn',
-               title='Stock Correlation Matrix')
-st.plotly_chart(fig, use_container_width=True)
 if __name__ == "__main__":
     main()
