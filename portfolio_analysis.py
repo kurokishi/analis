@@ -34,7 +34,8 @@ class PortfolioManager:
             'Balance': [500, 1700, 1500, 3000, 2300, 1100, 500, 1000, 400, 6000, 500],
             'Avg Price': [7300, 2605, 1423, 1080, 1145, 4489, 1700, 1600, 2400, 1860, 871],
             'Stock Value': [3650000, 4428500, 2135000, 3240000, 2633500, 4938000, 850000, 1600000, 960000, 11162500, 435714],
-            'Market Price': [7225, 2200, 3110, 905, 850, 4400, 1745, 1820, 2890, 1730, 835],
+            # PERBAIKAN: Ubah Market Price menjadi float
+            'Market Price': [7225.0, 2200.0, 3110.0, 905.0, 850.0, 4400.0, 1745.0, 1820.0, 2890.0, 1730.0, 835.0],
             'Unrealized': [-37500, -688500, 2530000, -525000, -678500, -98000, 22500, 220000, 196000, -782500, -18215],
             'Dividend Yield': [2.5, 3.0, 1.8, 2.0, 3.5, 2.8, 1.5, 4.0, 3.2, 2.7, 1.9]
         })
@@ -99,22 +100,22 @@ class PortfolioManager:
                 
                 try:
                     stock_data = yf.Ticker(ticker)
-                    hist = stock_data.history(period='1d')
+                    hist = stock_data.history(period='1d', auto_adjust=True)  # Tambahkan auto_adjust
                     
                     if not hist.empty:
                         current_price = hist['Close'].iloc[-1]
-                        prices[ticker] = current_price
+                        prices[ticker] = float(current_price)  # Konversi ke float
                     else:
                         if ticker in self.df['Ticker'].values:
-                            prices[ticker] = self.df[self.df['Ticker'] == ticker]['Market Price'].iloc[0]
+                            prices[ticker] = float(self.df[self.df['Ticker'] == ticker]['Market Price'].iloc[0])
                         elif ticker in self.new_stocks['Ticker'].values:
-                            prices[ticker] = self.new_stocks[self.new_stocks['Ticker'] == ticker]['Current Price'].iloc[0]
+                            prices[ticker] = float(self.new_stocks[self.new_stocks['Ticker'] == ticker]['Current Price'].iloc[0])
                 except Exception as e:
                     st.warning(f"Error mengambil data untuk {ticker}: {str(e)}")
                     if ticker in self.df['Ticker'].values:
-                        prices[ticker] = self.df[self.df['Ticker'] == ticker]['Market Price'].iloc[0]
+                        prices[ticker] = float(self.df[self.df['Ticker'] == ticker]['Market Price'].iloc[0])
                     elif ticker in self.new_stocks['Ticker'].values:
-                        prices[ticker] = self.new_stocks[self.new_stocks['Ticker'] == ticker]['Current Price'].iloc[0]
+                        prices[ticker] = float(self.new_stocks[self.new_stocks['Ticker'] == ticker]['Current Price'].iloc[0])
             
             for idx, row in self.df.iterrows():
                 ticker = row['Ticker']
@@ -484,18 +485,25 @@ class RiskAnalyzer:
     def beta_analysis(self):
         """Calculate beta coefficients relative to market index"""
         try:
-            market = yf.download('^JKSE', period='1y')['Close'].pct_change().dropna()
+            # PERBAIKAN: Tambahkan parameter auto_adjust
+            market = yf.download('^JKSE', period='1y', auto_adjust=True)['Close'].pct_change().dropna()
             beta_values = {}
             for stock in self.pm.df['Stock']:
                 if stock in self.pm.simulated_data:
                     stock_returns = self.pm.simulated_data[stock]['Price'].pct_change().dropna()
                     common_dates = stock_returns.index.intersection(market.index)
+                    
+                    # Pastikan ada cukup data
                     if len(common_dates) > 10:
-                        cov_matrix = np.cov(stock_returns.loc[common_dates], market.loc[common_dates])
+                        cov_matrix = np.cov(
+                            stock_returns.loc[common_dates], 
+                            market.loc[common_dates]
+                        )
                         beta = cov_matrix[0, 1] / cov_matrix[1, 1]
                         beta_values[stock] = beta
             return beta_values
-        except:
+        except Exception as e:
+            print(f"Error in beta calculation: {e}")
             return {}
     
     def stress_test(self, scenario='crisis'):
@@ -541,14 +549,36 @@ class RiskAnalyzer:
         for stock, data in returns_data.items():
             returns_df[stock] = data['Return']
         
+        # PERBAIKAN: Dapatkan saham yang ada di portofolio dan memiliki data return
+        portfolio_stocks = set(self.pm.df['Stock'])
+        available_stocks = set(returns_df.columns)
+        common_stocks = list(portfolio_stocks & available_stocks)
+        
+        # Jika tidak ada saham yang cocok, kembalikan default
+        if not common_stocks:
+            return {
+                'correlation_matrix': pd.DataFrame(),
+                'average_correlation': 0,
+                'diversification_ratio': 0
+            }
+        
+        # Filter hanya saham yang umum
+        returns_df = returns_df[common_stocks]
         corr_matrix = returns_df.corr()
+        
         mask = np.triu(np.ones(corr_matrix.shape), k=1).astype(bool)
         avg_correlation = corr_matrix.where(mask).mean().mean()
         
-        weighted_vol = self.pm.df['Market Value'] / self.pm.df['Market Value'].sum()
+        # Filter saham di portofolio yang memiliki data return
+        filtered_df = self.pm.df[self.pm.df['Stock'].isin(common_stocks)]
+        
+        weighted_vol = filtered_df['Market Value'] / filtered_df['Market Value'].sum()
         weighted_vol = weighted_vol.values
         individual_vol = returns_df.std().values
         portfolio_vol = self.portfolio_volatility(annualize=False)
+        
+        # PERBAIKAN: Pastikan tidak ada NaN
+        individual_vol = np.nan_to_num(individual_vol, nan=0.0)
         
         diversification_ratio = np.sum(weighted_vol * individual_vol) / portfolio_vol
         
