@@ -35,7 +35,7 @@ class PortfolioManager:
             'Avg Price': [7300, 2605, 1423, 1080, 1145, 4489, 1700, 1600, 2400, 1860, 871],
             'Stock Value': [3650000, 4428500, 2135000, 3240000, 2633500, 4938000, 850000, 1600000, 960000, 11162500, 435714],
             'Market Price': [7225.0, 2200.0, 3110.0, 905.0, 850.0, 4400.0, 1745.0, 1820.0, 2890.0, 1730.0, 835.0],
-            'Unrealized': [-37500, -688500, 2530000, -525000, -678500, -98000, 22500, 220000, 196000, -782500, -18215],
+            'Unrealized': [-37500.0, -688500.0, 2530000.0, -525000.0, -678500.0, -98000.0, 22500.0, 220000.0, 196000.0, -782500.0, -18215.0],  # Diubah menjadi float
             'Dividend Yield': [2.5, 3.0, 1.8, 2.0, 3.5, 2.8, 1.5, 4.0, 3.2, 2.7, 1.9]
         })
         
@@ -103,7 +103,7 @@ class PortfolioManager:
                     
                     if not hist.empty:
                         current_price = hist['Close'].iloc[-1]
-                        prices[ticker] = float(current_price)
+                        prices[ticker] = float(current_price)  # Pastikan float
                     else:
                         if ticker in self.df['Ticker'].values:
                             prices[ticker] = float(self.df[self.df['Ticker'] == ticker]['Market Price'].iloc[0])
@@ -119,12 +119,12 @@ class PortfolioManager:
             for idx, row in self.df.iterrows():
                 ticker = row['Ticker']
                 if ticker in prices:
-                    self.df.at[idx, 'Market Price'] = prices[ticker]
+                    self.df.at[idx, 'Market Price'] = float(prices[ticker])  # Konversi ke float
             
             for idx, row in self.new_stocks.iterrows():
                 ticker = row['Ticker']
                 if ticker in prices:
-                    self.new_stocks.at[idx, 'Current Price'] = prices[ticker]
+                    self.new_stocks.at[idx, 'Current Price'] = float(prices[ticker])  # Konversi ke float
             
             self.df['Market Value'] = self.df['Balance'] * self.df['Market Price']
             self.df['Unrealized'] = self.df['Market Value'] - self.df['Stock Value']
@@ -223,7 +223,8 @@ class PortfolioAnalyzer:
         if not idx.empty:
             original_price = sim_df.loc[idx, 'Market Price'].values[0]
             new_price = original_price * (1 + price_change_pct / 100)
-            sim_df.loc[idx, 'Market Price'] = new_price
+            # Konversi ke float
+            sim_df.loc[idx, 'Market Price'] = float(new_price)
             sim_df['Market Value'] = sim_df['Balance'] * sim_df['Market Price']
             sim_df['Unrealized'] = sim_df['Market Value'] - sim_df['Stock Value']
             
@@ -484,6 +485,7 @@ class RiskAnalyzer:
     def beta_analysis(self):
         """Calculate beta coefficients relative to market index"""
         try:
+            # PERBAIKAN: Tambahkan auto_adjust=True
             market = yf.download('^JKSE', period='1y', auto_adjust=True)['Close'].pct_change().dropna()
             beta_values = {}
             for stock in self.pm.df['Stock']:
@@ -567,12 +569,17 @@ class RiskAnalyzer:
         
         weighted_vol = filtered_df['Market Value'] / filtered_df['Market Value'].sum()
         weighted_vol = weighted_vol.values
-        individual_vol = returns_df.std().values
+        
+        # Pastikan urutan saham sama antara filtered_df dan returns_df
+        individual_vol = returns_df[filtered_df['Stock']].std().values
+        
         portfolio_vol = self.portfolio_volatility(annualize=False)
         
-        individual_vol = np.nan_to_num(individual_vol, nan=0.0)
-        
-        diversification_ratio = np.sum(weighted_vol * individual_vol) / portfolio_vol
+        # PERBAIKAN: Handle kasus portfolio_vol nol
+        if portfolio_vol == 0:
+            diversification_ratio = 1
+        else:
+            diversification_ratio = np.sum(weighted_vol * individual_vol) / portfolio_vol
         
         return {
             'correlation_matrix': corr_matrix,
