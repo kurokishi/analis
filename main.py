@@ -30,14 +30,23 @@ LQ45 = [
     'TLKM', 'TOWR', 'TPIA', 'UNTR', 'UNVR', 'WIKA', 'WSKT', 'WTON'
 ]
 
-# Fungsi untuk memuat data
+# Fungsi untuk memuat data (PERBAIKAN UTAMA)
 def load_data(uploaded_file):
     try:
         df = pd.read_csv(uploaded_file)
         # Bersihkan data
         df = df.dropna(subset=['Stock'])
-        # Konversi harga ke float
-        df['Avg Price'] = df['Avg Price'].str.replace('Rp ', '').str.replace(',', '').astype(float)
+        
+        # Perbaikan konversi harga: hapus semua karakter non-digit
+        df['Avg Price'] = (
+            df['Avg Price']
+            .astype(str)  # Pastikan berupa string
+            .str.replace(r'[^\d]', '', regex=True)  # Hapus semua non-digit
+            .replace('', np.nan)  # Ganti string kosong dengan NaN
+            .dropna()  # Hapus baris dengan nilai NaN
+            .astype(float)  # Konversi ke float
+        )
+        
         return df
     except Exception as e:
         st.error(f"Error loading file: {str(e)}")
@@ -64,9 +73,9 @@ def calculate_support_levels(data):
         closes = data['Close'].values
         
         # Menghitung moving averages
-        support_levels['MA50'] = talib.SMA(closes, timeperiod=50)[-1]
-        support_levels['MA100'] = talib.SMA(closes, timeperiod=100)[-1]
-        support_levels['MA200'] = talib.SMA(closes, timeperiod=200)[-1]
+        support_levels['MA50'] = talib.SMA(closes, timeperiod=50)[-1] if len(closes) >= 50 else np.nan
+        support_levels['MA100'] = talib.SMA(closes, timeperiod=100)[-1] if len(closes) >= 100 else np.nan
+        support_levels['MA200'] = talib.SMA(closes, timeperiod=200)[-1] if len(closes) >= 200 else np.nan
         
         # Menghitung Fibonacci retracement levels
         high = data['High'].max()
@@ -94,7 +103,8 @@ def calculate_support_levels(data):
         # Menambahkan harga terendah 1 tahun terakhir
         support_levels['52w_Low'] = data['Low'].min()
     
-    return support_levels
+    # Hapus nilai NaN
+    return {k: v for k, v in support_levels.items() if not np.isnan(v)}
 
 # Fungsi untuk analisis DCA
 def dca_analysis(df):
@@ -167,7 +177,7 @@ def get_news_sentiment(ticker):
     try:
         # Ganti dengan implementasi API berita sebenarnya
         # Contoh placeholder
-        time.sleep(0.5)  # Delay untuk simulasi
+        time.sleep(0.1)  # Delay untuk simulasi (diperpendek)
         
         # Simulasi sentimen acak
         sentiments = ['Positif', 'Netral', 'Negatif']
@@ -184,7 +194,6 @@ def get_recommended_stocks(index_name):
     data = []
     for stock in stocks:
         try:
-            ticker = stock + '.JK'
             price = get_current_price(stock)
             if not np.isnan(price):
                 # Simulasi data dividen
@@ -351,20 +360,8 @@ uploaded_file = st.file_uploader("Unggah file portofolio saham (CSV)", type="csv
 df = pd.DataFrame()
 
 if uploaded_file:
-    def load_data(uploaded_file):
-        try:
-          df = pd.read_csv(uploaded_file)
-           # Bersihkan data
-          df = df.dropna(subset=['Stock'])
-        
-           # Konversi harga: hapus semua karakter non-digit
-          df['Avg Price'] = df['Avg Price'].str.replace(r'[^\d]', '', regex=True).astype(float)
-        
-        return df
-    except Exception as e:
-        st.error(f"Error loading file: {str(e)}")
-        return pd.DataFrame()
-    
+    # PERBAIKAN PENTING: Gunakan fungsi load_data yang sudah didefinisikan
+    df = load_data(uploaded_file)
     
     if not df.empty:
         st.success("Data berhasil dimuat!")
@@ -442,67 +439,77 @@ if uploaded_file:
         # Ringkasan Portofolio
         st.subheader("📊 Ringkasan Portofolio")
         if not rec_df.empty:
-            # Hitung total investasi dan nilai sekarang
-            df['Total Investasi'] = df['Lot Balance'] * df['Avg Price']
-            rec_df['Nilai Sekarang'] = df['Lot Balance'] * rec_df['Harga Sekarang (Rp)']
-            
-            total_investment = df['Total Investasi'].sum()
-            current_value = rec_df['Nilai Sekarang'].sum()
-            performance = (current_value - total_investment) / total_investment * 100
-            
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Total Investasi", f"Rp {total_investment:,.0f}")
-            col2.metric("Nilai Sekarang", f"Rp {current_value:,.0f}", f"{performance:.2f}%")
-            col3.metric("Profit/Rugi", f"Rp {current_value - total_investment:,.0f}", 
-                       delta_color="inverse" if performance < 0 else "normal")
-            
-            # Grafik alokasi
-            allocation = df.copy()
-            allocation['Nilai'] = allocation['Lot Balance'] * rec_df['Harga Sekarang (Rp)']
-            fig = px.pie(
-                allocation, 
-                names='Stock', 
-                values='Nilai',
-                title='Alokasi Portofolio Berdasarkan Nilai Pasar',
-                hole=0.3
-            )
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Analisis support seluruh portofolio
-            st.subheader("🛡️ Level Support Portofolio")
-            support_data = []
-            for _, row in dca_df.iterrows():
-                if row['Support Levels']:
-                    # Ambil 3 support terdekat
-                    sorted_supports = sorted(
-                        [(k, v) for k, v in row['Support Levels'].items()], 
-                        key=lambda x: abs(x[1] - row['Current Price'])
-                    for i, (level, value) in enumerate(sorted_supports[:3]):
-                        distance = (row['Current Price'] - value) / row['Current Price'] * 100
-                        support_data.append({
-                            'Saham': row['Stock'],
-                            'Level Support': level,
-                            'Harga Support': value,
-                            'Harga Sekarang': row['Current Price'],
-                            'Jarak (%)': distance,
-                            'Kekuatan': 3 - i  # Semakin dekat semakin tinggi kekuatannya
-                        })
-            
-            if support_data:
-                support_df = pd.DataFrame(support_data)
-                fig = px.bar(
-                    support_df,
-                    x='Saham',
-                    y='Jarak (%)',
-                    color='Level Support',
-                    title='Jarak Harga ke Level Support Terdekat',
-                    text='Harga Support',
-                    hover_data=['Harga Support', 'Harga Sekarang']
+            # PERBAIKAN: Pastikan kolom 'Lot Balance' ada
+            if 'Lot Balance' in df.columns:
+                df['Total Investasi'] = df['Lot Balance'] * df['Avg Price']
+                
+                # Hitung nilai sekarang
+                current_prices = rec_df.set_index('Ticker')['Harga Sekarang (Rp)']
+                df['Current Price'] = df['Ticker'].map(current_prices)
+                df['Nilai Sekarang'] = df['Lot Balance'] * df['Current Price']
+                
+                total_investment = df['Total Investasi'].sum()
+                current_value = df['Nilai Sekarang'].sum()
+                performance = (current_value - total_investment) / total_investment * 100
+                
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Total Investasi", f"Rp {total_investment:,.0f}")
+                col2.metric("Nilai Sekarang", f"Rp {current_value:,.0f}", f"{performance:.2f}%")
+                col3.metric("Profit/Rugi", f"Rp {current_value - total_investment:,.0f}", 
+                           delta_color="inverse" if performance < 0 else "normal")
+                
+                # Grafik alokasi
+                allocation = df.copy()
+                allocation['Nilai'] = allocation['Nilai Sekarang']
+                fig = px.pie(
+                    allocation, 
+                    names='Stock', 
+                    values='Nilai',
+                    title='Alokasi Portofolio Berdasarkan Nilai Pasar',
+                    hole=0.3
                 )
-                fig.update_traces(texttemplate='Rp %{text:,.0f}', textposition='outside')
                 st.plotly_chart(fig, use_container_width=True)
+                
+                # Analisis support seluruh portofolio
+                st.subheader("🛡️ Level Support Portofolio")
+                support_data = []
+                for _, row in dca_df.iterrows():
+                    if row['Support Levels']:
+                        # Ambil 3 support terdekat
+                        sorted_supports = sorted(
+                            [(k, v) for k, v in row['Support Levels'].items()], 
+                            key=lambda x: abs(x[1] - row['Current Price'])
+                        )
+                        for i, (level, value) in enumerate(sorted_supports[:3]):
+                            distance = (row['Current Price'] - value) / row['Current Price'] * 100
+                            support_data.append({
+                                'Saham': row['Stock'],
+                                'Level Support': level,
+                                'Harga Support': value,
+                                'Harga Sekarang': row['Current Price'],
+                                'Jarak (%)': distance,
+                                'Kekuatan': 3 - i  # Semakin dekat semakin tinggi kekuatannya
+                            })
+                
+                if support_data:
+                    support_df = pd.DataFrame(support_data)
+                    fig = px.bar(
+                        support_df,
+                        x='Saham',
+                        y='Jarak (%)',
+                        color='Level Support',
+                        title='Jarak Harga ke Level Support Terdekat',
+                        text='Harga Support',
+                        hover_data=['Harga Support', 'Harga Sekarang']
+                    )
+                    fig.update_traces(texttemplate='Rp %{text:,.0f}', textposition='outside')
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.warning("Data support tidak tersedia untuk portofolio ini")
             else:
-                st.warning("Data support tidak tersedia untuk portofolio ini")
+                st.warning("Kolom 'Lot Balance' tidak ditemukan di data portofolio")
+        else:
+            st.warning("Tidak ada data rekomendasi untuk ditampilkan")
 
 else:
     st.info("Silakan unggah file portofolio saham dalam format CSV")
