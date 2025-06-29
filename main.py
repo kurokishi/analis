@@ -673,7 +673,7 @@ with tab1:
                         # Ambil 3 support terdekat
                         sorted_supports = sorted(
                             [(k, v) for k, v in row['Support Levels'].items()], 
-                            key=lambda x: abs(x[1] - row['Current Price'])
+                            key=lambda x: abs(x[1] - row['Current Price']))
                         for i, (level, value) in enumerate(sorted_supports[:3]):
                             distance = (row['Current Price'] - value) / row['Current Price'] * 100
                             support_data.append({
