@@ -235,7 +235,7 @@ def allocate_capital(capital, recommended_stocks):
     
     return recommended_stocks
 
-# Fungsi analisis rekomendasi portofolio
+# Fungsi analisis rekomendasi portofolio (diperbaiki)
 def analyze_portfolio(df):
     recommendations = []
     for _, row in df.iterrows():
@@ -258,7 +258,7 @@ def analyze_portfolio(df):
                 # Urutkan level support dari yang terdekat dengan harga saat ini
                 sorted_supports = sorted(
                     [(k, v) for k, v in support_levels.items()], 
-                    key=lambda x: abs(x[1] - current_price))
+                    key=lambda x: abs(x[1] - current_price)
                 
                 # Ambil 3 level support terdekat
                 closest_supports = sorted_supports[:3]
@@ -306,7 +306,7 @@ def analyze_portfolio(df):
             })
     
     return pd.DataFrame(recommendations)
-
+    
 # Fungsi untuk menampilkan grafik dengan support levels
 def plot_with_support(data, support_levels, ticker):
     if data.empty or not support_levels:
