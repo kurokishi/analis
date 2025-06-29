@@ -1,5 +1,3 @@
-import streamlit as st
-import pandas as pd
 import numpy as np
 import yfinance as yf
 import plotly.express as px
@@ -8,7 +6,6 @@ from datetime import datetime, timedelta
 import requests
 from bs4 import BeautifulSoup
 import time
-import talib
 
 # Konfigurasi awal
 st.set_page_config(layout="wide", page_title="Analisis Portofolio Saham")
@@ -65,17 +62,21 @@ def get_stock_data(ticker, period="1y"):
     except:
         return pd.DataFrame()
 
-# Fungsi untuk menghitung level support
+# PERBAIKAN: Fungsi untuk menghitung level support TANPA TA-Lib
 def calculate_support_levels(data):
     support_levels = {}
     
     if not data.empty:
-        closes = data['Close'].values
+        # Menghitung moving averages dengan pandas
+        closes = data['Close']
         
-        # Menghitung moving averages
-        support_levels['MA50'] = talib.SMA(closes, timeperiod=50)[-1] if len(closes) >= 50 else np.nan
-        support_levels['MA100'] = talib.SMA(closes, timeperiod=100)[-1] if len(closes) >= 100 else np.nan
-        support_levels['MA200'] = talib.SMA(closes, timeperiod=200)[-1] if len(closes) >= 200 else np.nan
+        # Pastikan ada cukup data untuk perhitungan
+        if len(closes) >= 50:
+            support_levels['MA50'] = closes.rolling(window=50).mean().iloc[-1]
+        if len(closes) >= 100:
+            support_levels['MA100'] = closes.rolling(window=100).mean().iloc[-1]
+        if len(closes) >= 200:
+            support_levels['MA200'] = closes.rolling(window=200).mean().iloc[-1]
         
         # Menghitung Fibonacci retracement levels
         high = data['High'].max()
@@ -94,17 +95,13 @@ def calculate_support_levels(data):
         support_levels['Pivot_S2'] = pivot - (latest['High'] - latest['Low'])
         support_levels['Pivot_S3'] = latest['Low'] - 2 * (latest['High'] - pivot)
         
-        # Menambahkan harga terendah 1 bulan terakhir
+        # Menambahkan harga terendah
         support_levels['1m_Low'] = data['Low'].tail(20).min()
-        
-        # Menambahkan harga terendah 3 bulan terakhir
         support_levels['3m_Low'] = data['Low'].tail(60).min()
-        
-        # Menambahkan harga terendah 1 tahun terakhir
         support_levels['52w_Low'] = data['Low'].min()
     
     # Hapus nilai NaN
-    return {k: v for k, v in support_levels.items() if not np.isnan(v)}
+    return {k: v for k, v in support_levels.items() if not pd.isna(v)}
 
 # Fungsi untuk analisis DCA
 def dca_analysis(df):
