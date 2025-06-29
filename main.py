@@ -378,287 +378,447 @@ def calculate_lot_purchase(df, capital):
     
     return pd.DataFrame(results), total_cost, remaining_capital
 
-# Tampilan Streamlit
-st.title("📈 Analisis Portofolio Saham dengan Support Level")
-
-# Input modal dan indeks di sidebar
-st.sidebar.header("Alokasi Modal")
-capital = st.sidebar.number_input("Modal yang Tersedia (Rp)", min_value=1000000, value=50000000, step=1000000)
-index_selection = st.sidebar.selectbox("Pilih Indeks Saham", ["Kompas100", "LQ45"])
-calculate_allocation = st.sidebar.button("Hitung Alokasi Modal")
-calculate_lot = st.sidebar.button("Hitung Jumlah Lot yang Bisa Dibeli")
-
-# Upload file
-uploaded_file = st.file_uploader("Unggah file portofolio saham (CSV)", type="csv")
-df = pd.DataFrame()
-
-if uploaded_file:
-    # Gunakan fungsi load_data yang sudah didefinisikan
-    df = load_data(uploaded_file)
+# FITUR BARU: Simulasi Pensiun / Tujuan Keuangan
+def retirement_simulation(initial_capital, annual_return, annual_dividend, years, monthly_contribution=0):
+    # Konversi persentase ke desimal
+    annual_return_decimal = annual_return / 100.0
+    annual_dividend_decimal = annual_dividend / 100.0
     
-    if not df.empty:
-        st.success("Data berhasil dimuat!")
-        st.subheader("Portofolio Saat Ini")
-        st.dataframe(df.style.format({'Avg Price': 'Rp {:,.0f}'}), height=300)
+    # Data untuk grafik
+    years_list = []
+    capital_growth = []
+    dividend_income = []
+    total_value = []
+    monthly_dividends = []
+    
+    # Inisialisasi nilai awal
+    current_capital = initial_capital
+    total_dividend = 0
+    
+    # Simulasi tahunan
+    for year in range(1, years + 1):
+        # Pertumbuhan modal
+        capital_growth.append(current_capital)
         
-        # Analisis DCA dan Support
-        st.subheader("🔍 Analisis Dollar Cost Averaging (DCA) & Support Level")
-        dca_df = dca_analysis(df)
+        # Hitung dividen tahunan
+        dividend = current_capital * annual_dividend_decimal
+        dividend_income.append(dividend)
+        total_dividend += dividend
         
-        if not dca_df.empty:
-            # Tampilkan hasil DCA dan Support
-            for _, row in dca_df.iterrows():
-                with st.expander(f"{row['Stock']} ({row['Ticker']})", expanded=False):
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.write(f"**Harga Rata-rata:** Rp {row['Avg Price']:,.0f}")
-                        st.write(f"**Harga Sekarang:** Rp {row['Current Price']:,.0f}")
-                        st.write(f"**Performa:** {row['Performance']:.2f}%")
+        # Reinvestasi dividen
+        current_capital += dividend
+        
+        # Pertumbuhan modal (capital gain)
+        current_capital *= (1 + annual_return_decimal)
+        
+        # Tambahkan kontribusi bulanan
+        current_capital += monthly_contribution * 12
+        
+        # Hitung pendapatan dividen per bulan
+        monthly_dividend = dividend / 12
+        
+        years_list.append(year)
+        total_value.append(current_capital)
+        monthly_dividends.append(monthly_dividend)
+    
+    # Buat DataFrame hasil simulasi
+    df = pd.DataFrame({
+        'Tahun': years_list,
+        'Pertumbuhan Modal (Rp)': capital_growth,
+        'Pendapatan Dividen Tahunan (Rp)': dividend_income,
+        'Total Nilai Portofolio (Rp)': total_value,
+        'Pendapatan Dividen Bulanan (Rp)': monthly_dividends
+    })
+    
+    return df, total_dividend
+
+# Tampilan Streamlit
+st.title("📈 Analisis Portofolio Saham & Simulasi Keuangan")
+
+# Buat tab untuk navigasi
+tab1, tab2 = st.tabs(["Analisis Portofolio", "Simulasi Pensiun"])
+
+with tab1:
+    # Input modal dan indeks di sidebar
+    st.sidebar.header("Alokasi Modal")
+    capital = st.sidebar.number_input("Modal yang Tersedia (Rp)", min_value=1000000, value=50000000, step=1000000)
+    index_selection = st.sidebar.selectbox("Pilih Indeks Saham", ["Kompas100", "LQ45"])
+    calculate_allocation = st.sidebar.button("Hitung Alokasi Modal")
+    calculate_lot = st.sidebar.button("Hitung Jumlah Lot yang Bisa Dibeli")
+
+    # Upload file
+    uploaded_file = st.file_uploader("Unggah file portofolio saham (CSV)", type="csv")
+    df = pd.DataFrame()
+
+    if uploaded_file:
+        # Gunakan fungsi load_data yang sudah didefinisikan
+        df = load_data(uploaded_file)
+        
+        if not df.empty:
+            st.success("Data berhasil dimuat!")
+            st.subheader("Portofolio Saat Ini")
+            st.dataframe(df.style.format({'Avg Price': 'Rp {:,.0f}'}), height=300)
+            
+            # Analisis DCA dan Support
+            st.subheader("🔍 Analisis Dollar Cost Averaging (DCA) & Support Level")
+            dca_df = dca_analysis(df)
+            
+            if not dca_df.empty:
+                # Tampilkan hasil DCA dan Support
+                for _, row in dca_df.iterrows():
+                    with st.expander(f"{row['Stock']} ({row['Ticker']})", expanded=False):
+                        col1, col2 = st.columns(2)
                         
-                        # Tampilkan analisis DCA
-                        st.subheader("Simulasi DCA")
-                        for dca in row['DCA Analysis']:
-                            st.write(f"- Rata-rata {dca['period']}: Rp {dca['simulated_price']:,.0f}")
-                    
-                    with col2:
-                        # Tampilkan level support
-                        if row['Support Levels']:
-                            st.subheader("Level Support Penting")
-                            support_df = pd.DataFrame(
-                                list(row['Support Levels'].items()), 
-                                columns=['Level', 'Harga (Rp)']
-                            ).sort_values('Harga (Rp)', ascending=False)
+                        with col1:
+                            st.write(f"**Harga Rata-rata:** Rp {row['Avg Price']:,.0f}")
+                            st.write(f"**Harga Sekarang:** Rp {row['Current Price']:,.0f}")
+                            st.write(f"**Performa:** {row['Performance']:.2f}%")
                             
-                            st.dataframe(support_df.style.format({'Harga (Rp)': 'Rp {:,.0f}'}))
-                        else:
-                            st.warning("Data support tidak tersedia")
-                    
-                    # Grafik dengan level support
-                    if row['Support Levels']:
-                        st.subheader("Grafik Harga dengan Level Support")
-                        hist_data = get_stock_data(row['Ticker'], period="1y")
-                        fig = plot_with_support(hist_data, row['Support Levels'], row['Ticker'])
-                        if fig:
-                            st.plotly_chart(fig, use_container_width=True)
-        
-        # Sentimen Berita
-        st.subheader("📰 Sentimen Berita Saham")
-        sentiment_df = pd.DataFrame({
-            'Saham': df['Stock'],
-            'Sentimen': [get_news_sentiment(t) for t in df['Ticker']]
-        })
-        st.dataframe(sentiment_df)
-        
-        # Rekomendasi Portofolio
-        st.subheader("🚦 Rekomendasi Portofolio")
-        rec_df = analyze_portfolio(df)
-        if not rec_df.empty:
-            # Format warna untuk rekomendasi
-            def color_recommendation(val):
-                color = 'lightgreen' if val == 'TAMBAH' else 'salmon' if val == 'JUAL' else 'lightyellow'
-                return f'background-color: {color}'
+                            # Tampilkan analisis DCA
+                            st.subheader("Simulasi DCA")
+                            for dca in row['DCA Analysis']:
+                                st.write(f"- Rata-rata {dca['period']}: Rp {dca['simulated_price']:,.0f}")
+                        
+                        with col2:
+                            # Tampilkan level support
+                            if row['Support Levels']:
+                                st.subheader("Level Support Penting")
+                                support_df = pd.DataFrame(
+                                    list(row['Support Levels'].items()), 
+                                    columns=['Level', 'Harga (Rp)']
+                                ).sort_values('Harga (Rp)', ascending=False)
+                                
+                                st.dataframe(support_df.style.format({'Harga (Rp)': 'Rp {:,.0f}'}))
+                            else:
+                                st.warning("Data support tidak tersedia")
+                        
+                        # Grafik dengan level support
+                        if row['Support Levels']:
+                            st.subheader("Grafik Harga dengan Level Support")
+                            hist_data = get_stock_data(row['Ticker'], period="1y")
+                            fig = plot_with_support(hist_data, row['Support Levels'], row['Ticker'])
+                            if fig:
+                                st.plotly_chart(fig, use_container_width=True)
             
-            st.dataframe(
-                rec_df.style.applymap(color_recommendation, subset=['Rekomendasi'])
-                .format({
-                    'Harga Avg (Rp)': 'Rp {:,.0f}',
-                    'Harga Sekarang (Rp)': 'Rp {:,.0f}',
-                    'Performa (%)': '{:.2f}%'
-                }),
-                height=400
-            )
-        
-        # FITUR BARU: Hitung jumlah lot yang bisa dibeli
-        if calculate_lot and capital > 0:
-            st.markdown("---")
-            st.subheader("🛒 Perhitungan Jumlah Lot yang Bisa Dibeli")
-            st.write(f"Modal yang tersedia: Rp {capital:,.0f}")
+            # Sentimen Berita
+            st.subheader("📰 Sentimen Berita Saham")
+            sentiment_df = pd.DataFrame({
+                'Saham': df['Stock'],
+                'Sentimen': [get_news_sentiment(t) for t in df['Ticker']]
+            })
+            st.dataframe(sentiment_df)
             
-            lot_df, total_cost, remaining_capital = calculate_lot_purchase(df, capital)
-            
-            if not lot_df.empty:
-                # Tampilkan hasil perhitungan lot
-                st.write("### Perhitungan Pembelian Saham")
+            # Rekomendasi Portofolio
+            st.subheader("🚦 Rekomendasi Portofolio")
+            rec_df = analyze_portfolio(df)
+            if not rec_df.empty:
+                # Format warna untuk rekomendasi
+                def color_recommendation(val):
+                    color = 'lightgreen' if val == 'TAMBAH' else 'salmon' if val == 'JUAL' else 'lightyellow'
+                    return f'background-color: {color}'
+                
                 st.dataframe(
-                    lot_df.style.format({
+                    rec_df.style.applymap(color_recommendation, subset=['Rekomendasi'])
+                    .format({
+                        'Harga Avg (Rp)': 'Rp {:,.0f}',
                         'Harga Sekarang (Rp)': 'Rp {:,.0f}',
-                        'Harga per Lot (Rp)': 'Rp {:,.0f}',
-                        'Total Biaya (Rp)': 'Rp {:,.0f}'
+                        'Performa (%)': '{:.2f}%'
                     }),
                     height=400
                 )
+            
+            # FITUR BARU: Hitung jumlah lot yang bisa dibeli
+            if calculate_lot and capital > 0:
+                st.markdown("---")
+                st.subheader("🛒 Perhitungan Jumlah Lot yang Bisa Dibeli")
+                st.write(f"Modal yang tersedia: Rp {capital:,.0f}")
                 
-                # Tampilkan ringkasan
-                col1, col2 = st.columns(2)
-                col1.metric("Total Biaya Pembelian", f"Rp {total_cost:,.0f}")
-                col2.metric("Sisa Modal", f"Rp {remaining_capital:,.0f}")
+                lot_df, total_cost, remaining_capital = calculate_lot_purchase(df, capital)
                 
-                # Grafik alokasi pembelian
-                fig = px.bar(
-                    lot_df.sort_values('Total Biaya (Rp)', ascending=False),
-                    x='Saham',
-                    y='Jumlah Lot yang Bisa Dibeli',
-                    title='Jumlah Lot yang Bisa Dibeli per Saham',
-                    color='Harga Sekarang (Rp)',
-                    text='Jumlah Lot yang Bisa Dibeli'
-                )
-                fig.update_traces(textposition='outside')
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.warning("Tidak ada data untuk ditampilkan")
-        
-        # Ringkasan Portofolio
-        st.subheader("📊 Ringkasan Portofolio")
-        if not rec_df.empty:
-            # Pastikan kolom 'Lot Balance' ada
-            if 'Lot Balance' in df.columns:
-                df['Total Investasi'] = df['Lot Balance'] * df['Avg Price']
-                
-                # Hitung nilai sekarang
-                current_prices = rec_df.set_index('Ticker')['Harga Sekarang (Rp)']
-                df['Current Price'] = df['Ticker'].map(current_prices)
-                df['Nilai Sekarang'] = df['Lot Balance'] * df['Current Price']
-                
-                total_investment = df['Total Investasi'].sum()
-                current_value = df['Nilai Sekarang'].sum()
-                performance = (current_value - total_investment) / total_investment * 100
-                
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Total Investasi", f"Rp {total_investment:,.0f}")
-                col2.metric("Nilai Sekarang", f"Rp {current_value:,.0f}", f"{performance:.2f}%")
-                col3.metric("Profit/Rugi", f"Rp {current_value - total_investment:,.0f}", 
-                           delta_color="inverse" if performance < 0 else "normal")
-                
-                # Grafik alokasi
-                allocation = df.copy()
-                allocation['Nilai'] = allocation['Nilai Sekarang']
-                fig = px.pie(
-                    allocation, 
-                    names='Stock', 
-                    values='Nilai',
-                    title='Alokasi Portofolio Berdasarkan Nilai Pasar',
-                    hole=0.3
-                )
-                st.plotly_chart(fig, use_container_width=True)
-                
-                # Analisis support seluruh portofolio
-                st.subheader("🛡️ Level Support Portofolio")
-                support_data = []
-                for _, row in dca_df.iterrows():
-                    if row['Support Levels']:
-                        # Ambil 3 support terdekat
-                        sorted_supports = sorted(
-                            [(k, v) for k, v in row['Support Levels'].items()], 
-                            key=lambda x: abs(x[1] - row['Current Price'])
-                        )
-                        for i, (level, value) in enumerate(sorted_supports[:3]):
-                            distance = (row['Current Price'] - value) / row['Current Price'] * 100
-                            support_data.append({
-                                'Saham': row['Stock'],
-                                'Level Support': level,
-                                'Harga Support': value,
-                                'Harga Sekarang': row['Current Price'],
-                                'Jarak (%)': distance,
-                                'Kekuatan': 3 - i  # Semakin dekat semakin tinggi kekuatannya
-                            })
-                
-                if support_data:
-                    support_df = pd.DataFrame(support_data)
-                    fig = px.bar(
-                        support_df,
-                        x='Saham',
-                        y='Jarak (%)',
-                        color='Level Support',
-                        title='Jarak Harga ke Level Support Terdekat',
-                        text='Harga Support',
-                        hover_data=['Harga Support', 'Harga Sekarang']
+                if not lot_df.empty:
+                    # Tampilkan hasil perhitungan lot
+                    st.write("### Perhitungan Pembelian Saham")
+                    st.dataframe(
+                        lot_df.style.format({
+                            'Harga Sekarang (Rp)': 'Rp {:,.0f}',
+                            'Harga per Lot (Rp)': 'Rp {:,.0f}',
+                            'Total Biaya (Rp)': 'Rp {:,.0f}'
+                        }),
+                        height=400
                     )
-                    fig.update_traces(texttemplate='Rp %{text:,.0f}', textposition='outside')
+                    
+                    # Tampilkan ringkasan
+                    col1, col2 = st.columns(2)
+                    col1.metric("Total Biaya Pembelian", f"Rp {total_cost:,.0f}")
+                    col2.metric("Sisa Modal", f"Rp {remaining_capital:,.0f}")
+                    
+                    # Grafik alokasi pembelian
+                    fig = px.bar(
+                        lot_df.sort_values('Total Biaya (Rp)', ascending=False),
+                        x='Saham',
+                        y='Jumlah Lot yang Bisa Dibeli',
+                        title='Jumlah Lot yang Bisa Dibeli per Saham',
+                        color='Harga Sekarang (Rp)',
+                        text='Jumlah Lot yang Bisa Dibeli'
+                    )
+                    fig.update_traces(textposition='outside')
                     st.plotly_chart(fig, use_container_width=True)
                 else:
-                    st.warning("Data support tidak tersedia untuk portofolio ini")
+                    st.warning("Tidak ada data untuk ditampilkan")
+            
+            # Ringkasan Portofolio
+            st.subheader("📊 Ringkasan Portofolio")
+            if not rec_df.empty:
+                # Pastikan kolom 'Lot Balance' ada
+                if 'Lot Balance' in df.columns:
+                    df['Total Investasi'] = df['Lot Balance'] * df['Avg Price']
+                    
+                    # Hitung nilai sekarang
+                    current_prices = rec_df.set_index('Ticker')['Harga Sekarang (Rp)']
+                    df['Current Price'] = df['Ticker'].map(current_prices)
+                    df['Nilai Sekarang'] = df['Lot Balance'] * df['Current Price']
+                    
+                    total_investment = df['Total Investasi'].sum()
+                    current_value = df['Nilai Sekarang'].sum()
+                    performance = (current_value - total_investment) / total_investment * 100
+                    
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("Total Investasi", f"Rp {total_investment:,.0f}")
+                    col2.metric("Nilai Sekarang", f"Rp {current_value:,.0f}", f"{performance:.2f}%")
+                    col3.metric("Profit/Rugi", f"Rp {current_value - total_investment:,.0f}", 
+                               delta_color="inverse" if performance < 0 else "normal")
+                    
+                    # Grafik alokasi
+                    allocation = df.copy()
+                    allocation['Nilai'] = allocation['Nilai Sekarang']
+                    fig = px.pie(
+                        allocation, 
+                        names='Stock', 
+                        values='Nilai',
+                        title='Alokasi Portofolio Berdasarkan Nilai Pasar',
+                        hole=0.3
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Analisis support seluruh portofolio
+                    st.subheader("🛡️ Level Support Portofolio")
+                    support_data = []
+                    for _, row in dca_df.iterrows():
+                        if row['Support Levels']:
+                            # Ambil 3 support terdekat
+                            sorted_supports = sorted(
+                                [(k, v) for k, v in row['Support Levels'].items()], 
+                                key=lambda x: abs(x[1] - row['Current Price'])
+                            )
+                            for i, (level, value) in enumerate(sorted_supports[:3]):
+                                distance = (row['Current Price'] - value) / row['Current Price'] * 100
+                                support_data.append({
+                                    'Saham': row['Stock'],
+                                    'Level Support': level,
+                                    'Harga Support': value,
+                                    'Harga Sekarang': row['Current Price'],
+                                    'Jarak (%)': distance,
+                                    'Kekuatan': 3 - i  # Semakin dekat semakin tinggi kekuatannya
+                                })
+                    
+                    if support_data:
+                        support_df = pd.DataFrame(support_data)
+                        fig = px.bar(
+                            support_df,
+                            x='Saham',
+                            y='Jarak (%)',
+                            color='Level Support',
+                            title='Jarak Harga ke Level Support Terdekat',
+                            text='Harga Support',
+                            hover_data=['Harga Support', 'Harga Sekarang']
+                        )
+                        fig.update_traces(texttemplate='Rp %{text:,.0f}', textposition='outside')
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        st.warning("Data support tidak tersedia untuk portofolio ini")
+                else:
+                    st.warning("Kolom 'Lot Balance' tidak ditemukan di data portofolio")
             else:
-                st.warning("Kolom 'Lot Balance' tidak ditemukan di data portofolio")
+                st.warning("Tidak ada data rekomendasi untuk ditampilkan")
+
+    else:
+        st.info("Silakan unggah file portofolio saham dalam format CSV")
+
+    # Rekomendasi Alokasi Modal
+    if calculate_allocation and capital > 0:
+        st.markdown("---")
+        st.subheader(f"💼 Rekomendasi Alokasi Modal ({index_selection})")
+        st.write(f"Modal yang tersedia: Rp {capital:,.0f}")
+        
+        # Dapatkan saham rekomendasi
+        recommended_stocks = get_recommended_stocks(index_selection)
+        
+        if not recommended_stocks.empty:
+            # Alokasikan modal
+            allocation = allocate_capital(capital, recommended_stocks)
+            
+            # Tampilkan hasil alokasi
+            st.write("### Alokasi Saham dan Jumlah Lot yang Dibeli")
+            allocation_display = allocation[[
+                'Saham', 'Harga (Rp)', 'Dividen Yield (%)', 'Support Terdekat (Rp)', 
+                'Jumlah Lot', 'Nilai Investasi', 'Estimasi Dividen Tahunan'
+            ]]
+            
+            # Format tampilan
+            formatted_df = allocation_display.copy()
+            formatted_df.columns = [
+                'Saham', 'Harga (Rp)', 'Dividen Yield (%)', 'Support Terdekat (Rp)',
+                'Jumlah Lot', 'Nilai Investasi (Rp)', 'Estimasi Dividen Tahunan (Rp)'
+            ]
+            
+            st.dataframe(
+                formatted_df.style.format({
+                    'Harga (Rp)': 'Rp {:,.0f}',
+                    'Support Terdekat (Rp)': 'Rp {:,.0f}',
+                    'Dividen Yield (%)': '{:.2f}%',
+                    'Nilai Investasi (Rp)': 'Rp {:,.0f}',
+                    'Estimasi Dividen Tahunan (Rp)': 'Rp {:,.0f}'
+                }),
+                height=500
+            )
+            
+            # Ringkasan alokasi
+            total_investment = allocation['Nilai Investasi'].sum()
+            total_dividen = allocation['Estimasi Dividen Tahunan'].sum()
+            sisa_uang = capital - total_investment
+            
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Total Investasi", f"Rp {total_investment:,.0f}")
+            col2.metric("Estimasi Dividen Tahunan", f"Rp {total_dividen:,.0f}")
+            col3.metric("Sisa Uang", f"Rp {sisa_uang:,.0f}")
+            
+            # Grafik alokasi
+            fig = px.pie(
+                allocation,
+                names='Saham',
+                values='Nilai Investasi',
+                title='Alokasi Modal per Saham',
+                hole=0.3
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Grafik estimasi dividen
+            fig = px.bar(
+                allocation.sort_values('Estimasi Dividen Tahunan', ascending=False),
+                x='Saham',
+                y='Estimasi Dividen Tahunan',
+                title='Estimasi Dividen Tahunan per Saham',
+                color='Dividen Yield (%)',
+                text='Estimasi Dividen Tahunan'
+            )
+            fig.update_traces(texttemplate='Rp %{text:,.0f}', textposition='outside')
+            st.plotly_chart(fig, use_container_width=True)
         else:
-            st.warning("Tidak ada data rekomendasi untuk ditampilkan")
+            st.warning("Tidak dapat menemukan data saham untuk indeks ini")
+    elif calculate_allocation:
+        st.warning("Masukkan jumlah modal yang valid")
 
-else:
-    st.info("Silakan unggah file portofolio saham dalam format CSV")
-
-# Rekomendasi Alokasi Modal
-if calculate_allocation and capital > 0:
-    st.markdown("---")
-    st.subheader(f"💼 Rekomendasi Alokasi Modal ({index_selection})")
-    st.write(f"Modal yang tersedia: Rp {capital:,.0f}")
+with tab2:
+    st.header("🚀 Simulasi Pensiun / Tujuan Keuangan")
+    st.write("""
+    Proyeksikan pertumbuhan portofolio Anda hingga masa pensiun berdasarkan:
+    - Return tahunan yang diharapkan
+    - Dividen tahunan
+    - Kontribusi bulanan
+    """)
     
-    # Dapatkan saham rekomendasi
-    recommended_stocks = get_recommended_stocks(index_selection)
+    # Input parameter simulasi
+    col1, col2 = st.columns(2)
+    with col1:
+        initial_capital = st.number_input("Modal Awal (Rp)", min_value=0, value=100000000, step=1000000)
+        annual_return = st.slider("Return Tahunan yang Diharapkan (%)", min_value=0.0, max_value=30.0, value=10.0, step=0.5)
+        years = st.slider("Jangka Waktu (Tahun)", min_value=1, max_value=50, value=20, step=1)
+    with col2:
+        annual_dividend = st.slider("Dividen Tahunan (%)", min_value=0.0, max_value=20.0, value=5.0, step=0.5)
+        monthly_contribution = st.number_input("Kontribusi Bulanan (Rp)", min_value=0, value=1000000, step=100000)
     
-    if not recommended_stocks.empty:
-        # Alokasikan modal
-        allocation = allocate_capital(capital, recommended_stocks)
+    run_simulation = st.button("Proyeksikan Pertumbuhan Portofolio")
+    
+    if run_simulation:
+        st.markdown("---")
+        st.subheader(f"Proyeksi Pertumbuhan Portofolio ({years} Tahun)")
         
-        # Tampilkan hasil alokasi
-        st.write("### Alokasi Saham dan Jumlah Lot yang Dibeli")
-        allocation_display = allocation[[
-            'Saham', 'Harga (Rp)', 'Dividen Yield (%)', 'Support Terdekat (Rp)', 
-            'Jumlah Lot', 'Nilai Investasi', 'Estimasi Dividen Tahunan'
-        ]]
-        
-        # Format tampilan
-        formatted_df = allocation_display.copy()
-        formatted_df.columns = [
-            'Saham', 'Harga (Rp)', 'Dividen Yield (%)', 'Support Terdekat (Rp)',
-            'Jumlah Lot', 'Nilai Investasi (Rp)', 'Estimasi Dividen Tahunan (Rp)'
-        ]
-        
-        st.dataframe(
-            formatted_df.style.format({
-                'Harga (Rp)': 'Rp {:,.0f}',
-                'Support Terdekat (Rp)': 'Rp {:,.0f}',
-                'Dividen Yield (%)': '{:.2f}%',
-                'Nilai Investasi (Rp)': 'Rp {:,.0f}',
-                'Estimasi Dividen Tahunan (Rp)': 'Rp {:,.0f}'
-            }),
-            height=500
+        # Jalankan simulasi
+        simulation_df, total_dividend = retirement_simulation(
+            initial_capital, 
+            annual_return, 
+            annual_dividend, 
+            years,
+            monthly_contribution
         )
         
-        # Ringkasan alokasi
-        total_investment = allocation['Nilai Investasi'].sum()
-        total_dividen = allocation['Estimasi Dividen Tahunan'].sum()
-        sisa_uang = capital - total_investment
+        # Tampilkan ringkasan
+        final_value = simulation_df['Total Nilai Portofolio (Rp)'].iloc[-1]
+        monthly_dividend = simulation_df['Pendapatan Dividen Bulanan (Rp)'].iloc[-1]
         
         col1, col2, col3 = st.columns(3)
-        col1.metric("Total Investasi", f"Rp {total_investment:,.0f}")
-        col2.metric("Estimasi Dividen Tahunan", f"Rp {total_dividen:,.0f}")
-        col3.metric("Sisa Uang", f"Rp {sisa_uang:,.0f}")
+        col1.metric("Total Nilai Akhir Portofolio", f"Rp {final_value:,.0f}")
+        col2.metric("Pendapatan Dividen Bulanan", f"Rp {monthly_dividend:,.0f}")
+        col3.metric("Total Dividen Diterima", f"Rp {total_dividend:,.0f}")
         
-        # Grafik alokasi
-        fig = px.pie(
-            allocation,
-            names='Saham',
-            values='Nilai Investasi',
-            title='Alokasi Modal per Saham',
-            hole=0.3
+        # Grafik pertumbuhan modal
+        fig1 = go.Figure()
+        fig1.add_trace(go.Scatter(
+            x=simulation_df['Tahun'],
+            y=simulation_df['Pertumbuhan Modal (Rp)'],
+            name='Pertumbuhan Modal',
+            line=dict(color='blue', width=3)
+        ))
+        fig1.add_trace(go.Scatter(
+            x=simulation_df['Tahun'],
+            y=simulation_df['Total Nilai Portofolio (Rp)'],
+            name='Total Portofolio',
+            line=dict(color='green', width=3, dash='dash')
+        ))
+        fig1.update_layout(
+            title='Proyeksi Pertumbuhan Modal',
+            xaxis_title='Tahun',
+            yaxis_title='Nilai (Rp)',
+            template='plotly_white',
+            hovermode='x unified',
+            height=500
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig1, use_container_width=True)
         
-        # Grafik estimasi dividen
-        fig = px.bar(
-            allocation.sort_values('Estimasi Dividen Tahunan', ascending=False),
-            x='Saham',
-            y='Estimasi Dividen Tahunan',
-            title='Estimasi Dividen Tahunan per Saham',
-            color='Dividen Yield (%)',
-            text='Estimasi Dividen Tahunan'
+        # Grafik pendapatan dividen
+        fig2 = go.Figure()
+        fig2.add_trace(go.Scatter(
+            x=simulation_df['Tahun'],
+            y=simulation_df['Pendapatan Dividen Tahunan (Rp)'],
+            name='Dividen Tahunan',
+            line=dict(color='orange', width=3)
+        ))
+        fig2.add_trace(go.Bar(
+            x=simulation_df['Tahun'],
+            y=simulation_df['Pendapatan Dividen Bulanan (Rp)'],
+            name='Dividen Bulanan',
+            marker_color='gold'
+        ))
+        fig2.update_layout(
+            title='Proyeksi Pendapatan Dividen',
+            xaxis_title='Tahun',
+            yaxis_title='Dividen (Rp)',
+            template='plotly_white',
+            hovermode='x unified',
+            height=500
         )
-        fig.update_traces(texttemplate='Rp %{text:,.0f}', textposition='outside')
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.warning("Tidak dapat menemukan data saham untuk indeks ini")
-elif calculate_allocation:
-    st.warning("Masukkan jumlah modal yang valid")
+        st.plotly_chart(fig2, use_container_width=True)
+        
+        # Tampilkan tabel data
+        with st.expander("Lihat Detail Proyeksi Tahunan", expanded=False):
+            st.dataframe(
+                simulation_df.style.format({
+                    'Pertumbuhan Modal (Rp)': 'Rp {:,.0f}',
+                    'Pendapatan Dividen Tahunan (Rp)': 'Rp {:,.0f}',
+                    'Total Nilai Portofolio (Rp)': 'Rp {:,.0f}',
+                    'Pendapatan Dividen Bulanan (Rp)': 'Rp {:,.0f}'
+                })
+            )
 
 # Catatan kaki
 st.markdown("---")
