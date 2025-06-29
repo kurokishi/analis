@@ -29,7 +29,7 @@ LQ45 = [
     'TLKM', 'TOWR', 'TPIA', 'UNTR', 'UNVR', 'WIKA', 'WSKT', 'WTON'
 ]
 
-# Fungsi untuk memuat data (PERBAIKAN UTAMA)
+# Fungsi untuk memuat data
 def load_data(uploaded_file):
     try:
         df = pd.read_csv(uploaded_file)
@@ -64,15 +64,14 @@ def get_stock_data(ticker, period="1y"):
     except:
         return pd.DataFrame()
 
-# PERBAIKAN: Fungsi untuk menghitung level support TANPA TA-Lib
+# Fungsi untuk menghitung level support
 def calculate_support_levels(data):
     support_levels = {}
     
     if not data.empty:
-        # Menghitung moving averages dengan pandas
         closes = data['Close']
         
-        # Pastikan ada cukup data untuk perhitungan
+        # Menghitung moving averages dengan pandas
         if len(closes) >= 50:
             support_levels['MA50'] = closes.rolling(window=50).mean().iloc[-1]
         if len(closes) >= 100:
@@ -345,6 +344,40 @@ def plot_with_support(data, support_levels, ticker):
     
     return fig
 
+# Fungsi untuk menghitung jumlah lot yang bisa dibeli
+def calculate_lot_purchase(df, capital):
+    results = []
+    total_cost = 0
+    
+    for _, row in df.iterrows():
+        ticker = row['Ticker']
+        current_price = get_current_price(ticker)
+        
+        if not np.isnan(current_price):
+            # Hitung jumlah lot yang bisa dibeli (1 lot = 100 lembar)
+            lot_size = 100
+            price_per_lot = current_price * lot_size
+            max_lots = capital // price_per_lot
+            
+            # Hitung biaya pembelian untuk semua lot yang bisa dibeli
+            cost = max_lots * price_per_lot
+            
+            results.append({
+                'Saham': row['Stock'],
+                'Ticker': ticker,
+                'Harga Sekarang (Rp)': current_price,
+                'Harga per Lot (Rp)': price_per_lot,
+                'Jumlah Lot yang Bisa Dibeli': max_lots,
+                'Total Biaya (Rp)': cost
+            })
+            
+            total_cost += cost
+    
+    # Hitung sisa modal
+    remaining_capital = capital - total_cost
+    
+    return pd.DataFrame(results), total_cost, remaining_capital
+
 # Tampilan Streamlit
 st.title("📈 Analisis Portofolio Saham dengan Support Level")
 
@@ -353,13 +386,14 @@ st.sidebar.header("Alokasi Modal")
 capital = st.sidebar.number_input("Modal yang Tersedia (Rp)", min_value=1000000, value=50000000, step=1000000)
 index_selection = st.sidebar.selectbox("Pilih Indeks Saham", ["Kompas100", "LQ45"])
 calculate_allocation = st.sidebar.button("Hitung Alokasi Modal")
+calculate_lot = st.sidebar.button("Hitung Jumlah Lot yang Bisa Dibeli")
 
 # Upload file
 uploaded_file = st.file_uploader("Unggah file portofolio saham (CSV)", type="csv")
 df = pd.DataFrame()
 
 if uploaded_file:
-    # PERBAIKAN PENTING: Gunakan fungsi load_data yang sudah didefinisikan
+    # Gunakan fungsi load_data yang sudah didefinisikan
     df = load_data(uploaded_file)
     
     if not df.empty:
@@ -435,10 +469,49 @@ if uploaded_file:
                 height=400
             )
         
+        # FITUR BARU: Hitung jumlah lot yang bisa dibeli
+        if calculate_lot and capital > 0:
+            st.markdown("---")
+            st.subheader("🛒 Perhitungan Jumlah Lot yang Bisa Dibeli")
+            st.write(f"Modal yang tersedia: Rp {capital:,.0f}")
+            
+            lot_df, total_cost, remaining_capital = calculate_lot_purchase(df, capital)
+            
+            if not lot_df.empty:
+                # Tampilkan hasil perhitungan lot
+                st.write("### Perhitungan Pembelian Saham")
+                st.dataframe(
+                    lot_df.style.format({
+                        'Harga Sekarang (Rp)': 'Rp {:,.0f}',
+                        'Harga per Lot (Rp)': 'Rp {:,.0f}',
+                        'Total Biaya (Rp)': 'Rp {:,.0f}'
+                    }),
+                    height=400
+                )
+                
+                # Tampilkan ringkasan
+                col1, col2 = st.columns(2)
+                col1.metric("Total Biaya Pembelian", f"Rp {total_cost:,.0f}")
+                col2.metric("Sisa Modal", f"Rp {remaining_capital:,.0f}")
+                
+                # Grafik alokasi pembelian
+                fig = px.bar(
+                    lot_df.sort_values('Total Biaya (Rp)', ascending=False),
+                    x='Saham',
+                    y='Jumlah Lot yang Bisa Dibeli',
+                    title='Jumlah Lot yang Bisa Dibeli per Saham',
+                    color='Harga Sekarang (Rp)',
+                    text='Jumlah Lot yang Bisa Dibeli'
+                )
+                fig.update_traces(textposition='outside')
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("Tidak ada data untuk ditampilkan")
+        
         # Ringkasan Portofolio
         st.subheader("📊 Ringkasan Portofolio")
         if not rec_df.empty:
-            # PERBAIKAN: Pastikan kolom 'Lot Balance' ada
+            # Pastikan kolom 'Lot Balance' ada
             if 'Lot Balance' in df.columns:
                 df['Total Investasi'] = df['Lot Balance'] * df['Avg Price']
                 
