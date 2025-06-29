@@ -246,7 +246,7 @@ def analyze_portfolio(df):
         if not np.isnan(current_price):
             performance = (current_price - avg_price) / avg_price * 100
             
-            # Dapatkan level support
+            # Dapatkan level support secara langsung
             hist_data = get_stock_data(ticker, period="1y")
             support_levels = calculate_support_levels(hist_data) if not hist_data.empty else {}
             
@@ -257,8 +257,8 @@ def analyze_portfolio(df):
             if support_levels:
                 # Urutkan level support dari yang terdekat dengan harga saat ini
                 sorted_supports = sorted(
-                   [(k, v) for k, v in row['Support Levels'].items()], 
-                   key=lambda x: abs(x[1] - current_price))
+                    [(k, v) for k, v in support_levels.items()], 
+                    key=lambda x: abs(x[1] - current_price))
                 
                 # Ambil 3 level support terdekat
                 closest_supports = sorted_supports[:3]
@@ -269,6 +269,7 @@ def analyze_portfolio(df):
                     distance = (current_price - support_level) / current_price * 100
                     support_reason = f"Support terdekat: {closest_supports[0][0]} (Rp {support_level:,.0f}, {distance:+.2f}%)"
             
+            # ... (kode selanjutnya tetap sama) ...
             if performance > 25:
                 rec = 'JUAL'
                 reason = f'Kenaikan signifikan ({performance:.2f}%)'
