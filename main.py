@@ -258,7 +258,7 @@ def analyze_portfolio(df):
                 # Urutkan level support dari yang terdekat dengan harga saat ini
                 sorted_supports = sorted(
                    [(k, v) for k, v in row['Support Levels'].items()], 
-                   key=lambda x: abs(x[1] - current_price)
+                   key=lambda x: abs(x[1] - current_price))
                 
                 # Ambil 3 level support terdekat
                 closest_supports = sorted_supports[:3]
