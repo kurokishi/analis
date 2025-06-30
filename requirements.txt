@@ -8,3 +8,4 @@ beautifulsoup4
 matplotlib
 tensorflow
 scikit-learn
+Prophet 
