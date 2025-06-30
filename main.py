@@ -8,9 +8,18 @@ from datetime import datetime, timedelta
 import requests
 from bs4 import BeautifulSoup
 import time
+from sklearn.preprocessing import MinMaxScaler
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense, Dropout
+from prophet import Prophet
+import logging
 
 # Konfigurasi awal
 st.set_page_config(layout="wide", page_title="Analisis Portofolio Saham")
+
+# Setup logging untuk Prophet
+logging.getLogger('prophet').setLevel(logging.WARNING)
+logging.getLogger('cmdstanpy').setLevel(logging.WARNING)
 
 # Daftar saham indeks Kompas100 dan LQ45
 KOMPAS100 = [
@@ -474,11 +483,245 @@ def retirement_simulation(initial_capital, annual_return, annual_dividend, years
     
     return df, total_dividend
 
-# Tampilan Streamlit
+# ========================================================
+# FUNGSI BARU: PREDIKSI HARGA SAHAM
+# ========================================================
+
+# Fungsi untuk prediksi menggunakan LSTM
+def predict_with_lstm(ticker, months=6):
+    try:
+        # Dapatkan data historis
+        data = get_stock_data(ticker, period="2y")
+        if data.empty or len(data) < 100:
+            return None, None, "Data historis tidak cukup untuk prediksi"
+        
+        # Gunakan hanya kolom Close
+        dataset = data[['Close']].values
+        
+        # Normalisasi data
+        scaler = MinMaxScaler(feature_range=(0, 1))
+        scaled_data = scaler.fit_transform(dataset)
+        
+        # Buat dataset untuk training
+        look_back = 60  # Gunakan 60 hari sebelumnya untuk prediksi
+        X, y = [], []
+        for i in range(look_back, len(scaled_data)):
+            X.append(scaled_data[i-look_back:i, 0])
+            y.append(scaled_data[i, 0])
+        X, y = np.array(X), np.array(y)
+        X = np.reshape(X, (X.shape[0], X.shape[1], 1))
+        
+        # Bangun model LSTM
+        model = Sequential()
+        model.add(LSTM(units=50, return_sequences=True, input_shape=(X.shape[1], 1)))
+        model.add(Dropout(0.2))
+        model.add(LSTM(units=50, return_sequences=False))
+        model.add(Dropout(0.2))
+        model.add(Dense(units=25))
+        model.add(Dense(units=1))
+        
+        model.compile(optimizer='adam', loss='mean_squared_error')
+        
+        # Latih model
+        model.fit(X, y, epochs=25, batch_size=32, verbose=0)
+        
+        # Prediksi masa depan
+        future_days = 30 * months  # Asumsi 30 hari per bulan
+        predictions = []
+        last_sequence = scaled_data[-look_back:]
+        
+        for _ in range(future_days):
+            x_input = last_sequence.reshape(1, look_back, 1)
+            pred = model.predict(x_input, verbose=0)
+            predictions.append(pred[0,0])
+            last_sequence = np.append(last_sequence[1:], pred)
+        
+        # Invers transformasi
+        predictions = scaler.inverse_transform(np.array(predictions).reshape(-1, 1))
+        
+        # Buat tanggal prediksi
+        last_date = data.index[-1]
+        pred_dates = [last_date + timedelta(days=i) for i in range(1, future_days+1)]
+        
+        return predictions.flatten(), pred_dates, "Sukses"
+    
+    except Exception as e:
+        print(f"Error in LSTM prediction: {str(e)}")
+        return None, None, f"Error: {str(e)}"
+
+# Fungsi untuk prediksi menggunakan Prophet
+def predict_with_prophet(ticker, months=6):
+    try:
+        # Dapatkan data historis
+        data = get_stock_data(ticker, period="5y")
+        if data.empty or len(data) < 100:
+            return None, None, "Data historis tidak cukup untuk prediksi"
+        
+        # Siapkan data untuk Prophet
+        df = data.reset_index()[['Date', 'Close']].rename(columns={'Date': 'ds', 'Close': 'y'})
+        df['ds'] = df['ds'].dt.tz_localize(None)  # Hapus timezone
+        
+        # Buat dan latih model
+        model = Prophet(
+            daily_seasonality=False,
+            weekly_seasonality=True,
+            yearly_seasonality=True,
+            changepoint_prior_scale=0.05
+        )
+        model.add_seasonality(name='monthly', period=30.5, fourier_order=5)
+        model.fit(df)
+        
+        # Buat dataframe untuk prediksi
+        future = model.make_future_dataframe(periods=30*months, freq='D')
+        forecast = model.predict(future)
+        
+        # Ambil bagian prediksi saja
+        forecast = forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].tail(30*months)
+        
+        return forecast, "Sukses"
+    
+    except Exception as e:
+        print(f"Error in Prophet prediction: {str(e)}")
+        return None, f"Error: {str(e)}"
+
+# Fungsi untuk menampilkan hasil prediksi
+def show_prediction_results(ticker, model_type, months):
+    with st.spinner(f'Memprediksi harga {ticker} untuk {months} bulan ke depan...'):
+        if model_type == "LSTM":
+            predictions, dates, status = predict_with_lstm(ticker, months)
+            if predictions is None:
+                st.error(f"Prediksi gagal: {status}")
+                return
+            
+            # Buat DataFrame hasil prediksi
+            pred_df = pd.DataFrame({
+                'Date': dates,
+                'Predicted': predictions
+            })
+            
+            # Ambil data historis
+            hist_data = get_stock_data(ticker, period="1y")
+            
+            # Buat plot
+            fig = go.Figure()
+            
+            # Data historis
+            fig.add_trace(go.Scatter(
+                x=hist_data.index, 
+                y=hist_data['Close'],
+                mode='lines',
+                name='Harga Historis',
+                line=dict(color='#1f77b4', width=2)
+            ))
+            
+            # Data prediksi
+            fig.add_trace(go.Scatter(
+                x=pred_df['Date'], 
+                y=pred_df['Predicted'],
+                mode='lines',
+                name='Prediksi LSTM',
+                line=dict(color='green', width=2, dash='dot')
+            ))
+            
+            # Konfigurasi layout
+            fig.update_layout(
+                title=f'Prediksi Harga {ticker} ({months} Bulan) - LSTM',
+                xaxis_title='Tanggal',
+                yaxis_title='Harga (Rp)',
+                template='plotly_white',
+                hovermode='x unified',
+                height=500
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Tampilkan nilai prediksi akhir
+            last_pred = pred_df['Predicted'].iloc[-1]
+            current_price = get_current_price(ticker)
+            change_pct = ((last_pred - current_price) / current_price * 100) if current_price > 0 else 0
+            
+            st.metric("Prediksi Harga Akhir", 
+                     f"Rp {last_pred:,.0f}", 
+                     f"{change_pct:.2f}% dari harga sekarang")
+            
+        else:  # Prophet
+            forecast, status = predict_with_prophet(ticker, months)
+            if forecast is None:
+                st.error(f"Prediksi gagal: {status}")
+                return
+            
+            # Ambil data historis
+            hist_data = get_stock_data(ticker, period="1y")
+            
+            # Buat plot
+            fig = go.Figure()
+            
+            # Data historis
+            fig.add_trace(go.Scatter(
+                x=hist_data.index, 
+                y=hist_data['Close'],
+                mode='lines',
+                name='Harga Historis',
+                line=dict(color='#1f77b4', width=2)
+            ))
+            
+            # Data prediksi
+            fig.add_trace(go.Scatter(
+                x=forecast['ds'], 
+                y=forecast['yhat'],
+                mode='lines',
+                name='Prediksi Prophet',
+                line=dict(color='green', width=2)
+            ))
+            
+            # Interval keyakinan
+            fig.add_trace(go.Scatter(
+                x=forecast['ds'],
+                y=forecast['yhat_upper'],
+                fill=None,
+                mode='lines',
+                line=dict(width=0),
+                name='Batas Atas'
+            ))
+            
+            fig.add_trace(go.Scatter(
+                x=forecast['ds'],
+                y=forecast['yhat_lower'],
+                fill='tonexty',
+                mode='lines',
+                line=dict(width=0),
+                name='Batas Bawah'
+            ))
+            
+            # Konfigurasi layout
+            fig.update_layout(
+                title=f'Prediksi Harga {ticker} ({months} Bulan) - Prophet',
+                xaxis_title='Tanggal',
+                yaxis_title='Harga (Rp)',
+                template='plotly_white',
+                hovermode='x unified',
+                height=500
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Tampilkan nilai prediksi akhir
+            last_pred = forecast['yhat'].iloc[-1]
+            current_price = get_current_price(ticker)
+            change_pct = ((last_pred - current_price) / current_price * 100) if current_price > 0 else 0
+            
+            st.metric("Prediksi Harga Akhir", 
+                     f"Rp {last_pred:,.0f}", 
+                     f"{change_pct:.2f}% dari harga sekarang")
+
+# ========================================================
+# TAMPILAN STREAMLIT
+# ========================================================
+
 st.title("📈 Analisis Portofolio Saham & Simulasi Keuangan")
 
 # Buat tab untuk navigasi
-tab1, tab2 = st.tabs(["Analisis Portofolio", "Simulasi Pensiun"])
+tab1, tab2, tab3 = st.tabs(["Analisis Portofolio", "Simulasi Pensiun", "Prediksi Harga"])
 
 with tab1:
     # Input modal dan indeks di sidebar
@@ -883,6 +1126,91 @@ with tab2:
                 })
             )
 
+# ========================================================
+# TAB BARU: PREDIKSI HARGA SAHAM
+# ========================================================
+with tab3:
+    st.header("🔮 Prediksi Harga Saham Jangka Menengah")
+    st.write("""
+    Prediksi harga saham untuk 1-6 bulan ke depan menggunakan model:
+    - **LSTM**: Long Short-Term Memory (model deep learning khusus data time series)
+    - **Prophet**: Model forecasting time series dari Facebook
+    
+    Catatan:
+    - Prediksi bersifat indikatif dan tidak menjamin akurasi mutlak
+    - Hasil prediksi dapat berbeda-beda tergantung kondisi pasar
+    - Gunakan sebagai salah satu referensi pengambilan keputusan
+    """)
+    
+    # Pilihan saham dan parameter
+    col1, col2 = st.columns(2)
+    with col1:
+        # Pilih indeks saham
+        index_selection = st.selectbox("Pilih Indeks Saham", ["Kompas100", "LQ45"])
+        
+        # Pilih saham berdasarkan indeks
+        stocks = KOMPAS100 if index_selection == "Kompas100" else LQ45
+        selected_stock = st.selectbox("Pilih Saham", stocks)
+        
+    with col2:
+        # Pilih model prediksi
+        model_type = st.selectbox("Pilih Model Prediksi", ["LSTM", "Prophet"])
+        
+        # Pilih periode prediksi
+        months = st.slider("Periode Prediksi (Bulan)", 1, 6, 3)
+    
+    # Tombol prediksi
+    predict_button = st.button("Mulai Prediksi")
+    
+    if predict_button and selected_stock:
+        ticker = f"{selected_stock}.JK"
+        show_prediction_results(ticker, model_type, months)
+    
+    # Informasi tambahan
+    st.markdown("---")
+    with st.expander("Penjelasan Model Prediksi"):
+        st.subheader("LSTM (Long Short-Term Memory)")
+        st.write("""
+        LSTM adalah jenis jaringan saraf berulang (RNN) yang dirancang khusus untuk memproses data sekuensial dan deret waktu. 
+        Keunggulan LSTM:
+        - Mampu mempelajari ketergantungan jangka panjang dalam data
+        - Menangani pola non-linear dengan baik
+        - Tahan terhadap masalah vanishing gradient
+        
+        Dalam aplikasi ini:
+        - Model dilatih menggunakan data 2 tahun terakhir
+        - Menggunakan arsitektur 2 lapisan LSTM dengan dropout
+        - Melakukan prediksi per hari untuk 1-6 bulan ke depan
+        """)
+        
+        st.subheader("Prophet")
+        st.write("""
+        Prophet adalah model forecasting time series yang dikembangkan oleh Facebook. Model ini dirancang untuk:
+        - Menangani pola musiman (harian, mingguan, tahunan)
+        - Memperhitungkan hari libur dan event khusus
+        - Robust terhadap missing data dan outliers
+        
+        Dalam aplikasi ini:
+        - Model dilatih menggunakan data 5 tahun terakhir
+        - Menambahkan komponen musiman bulanan
+        - Menghasilkan prediksi beserta interval keyakinan
+        """)
+        
+        st.subheader("Perbandingan Kedua Model")
+        st.write("""
+        | Fitur                | LSTM                          | Prophet                       |
+        |----------------------|-------------------------------|-------------------------------|
+        | Akurasi jangka pendek | Sangat baik                  | Baik                          |
+        | Akurasi jangka panjang | Baik                         | Sangat baik                   |
+        | Kecepatan pelatihan   | Lambat (perlu GPU)           | Cepat                         |
+        | Interpretabilitas     | Rendah (black box)           | Tinggi                        |
+        | Penanganan musiman    | Terbatas                     | Sangat baik                   |
+        | Data minimal          | ≥100 hari                    | ≥100 hari                     |
+        """)
+    
+    st.markdown("---")
+    st.info("🚨 **Peringatan Investasi**: Prediksi harga saham bersifat spekulatif dan tidak dapat dijadikan satu-satunya acuan pengambilan keputusan investasi. Selalu lakukan analisis fundamental dan pertimbangkan risiko investasi.")
+
 # Catatan kaki
 st.markdown("---")
-st.caption("© 2023 Tools Analisis Saham | Data harga saham bersumber dari Yahoo Finance | Support level dihitung menggunakan moving average, Fibonacci, dan pivot points")
+st.caption("© 2023 Tools Analisis Saham | Data harga saham bersumber dari Yahoo Finance | Support level dihitung menggunakan moving average, Fibonacci, dan pivot points | Prediksi menggunakan LSTM dan Prophet")
