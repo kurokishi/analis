@@ -2411,6 +2411,7 @@ with tab5:
         - Tidak menunjukkan profitabilitas  
         - Dapat dipengaruhi oleh akuisisi  
         """)
+        
     with tab6:
     st.header("📊 Analisis Teknikal Saham")
     st.write("""
