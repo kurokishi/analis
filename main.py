@@ -928,14 +928,374 @@ def show_prediction_results(ticker, model_type, months):
                      f"{change_pct:.2f}% dari harga sekarang")
 
 # ========================================================
+# FUNGSI BARU: ANALISIS FUNDAMENTAL & RASIO KEUANGAN
+# ========================================================
+
+def get_financial_ratios(ticker):
+    """Mendapatkan data rasio keuangan dan fundamental saham dari Yahoo Finance"""
+    try:
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        
+        # Data harga dan volume
+        current_price = info.get('currentPrice', info.get('regularMarketPrice', np.nan))
+        prev_close = info.get('previousClose', np.nan)
+        market_cap = info.get('marketCap', np.nan)
+        volume = info.get('volume', np.nan)
+        avg_volume = info.get('averageVolume', np.nan)
+        
+        # Rasio profitabilitas
+        roe = info.get('returnOnEquity', np.nan) * 100 if info.get('returnOnEquity') else np.nan
+        roa = info.get('returnOnAssets', np.nan) * 100 if info.get('returnOnAssets') else np.nan
+        npm = info.get('profitMargins', np.nan) * 100 if info.get('profitMargins') else np.nan
+        gross_margin = info.get('grossMargins', np.nan) * 100 if info.get('grossMargins') else np.nan
+        operating_margin = info.get('operatingMargins', np.nan) * 100 if info.get('operatingMargins') else np.nan
+        
+        # Rasio valuasi
+        pe_ratio = info.get('trailingPE', np.nan)
+        pb_ratio = info.get('priceToBook', np.nan)
+        ps_ratio = info.get('priceToSalesTrailing12Months', np.nan)
+        ev_ebitda = info.get('enterpriseToEbitda', np.nan)
+        
+        # Rasio solvabilitas
+        der = info.get('debtToEquity', np.nan) * 100 if info.get('debtToEquity') else np.nan
+        current_ratio = info.get('currentRatio', np.nan)
+        quick_ratio = info.get('quickRatio', np.nan)
+        interest_coverage = info.get('earningsBeforeInterestTaxes', np.nan)
+        
+        # Rasio kinerja
+        eps = info.get('trailingEps', info.get('epsTrailingTwelveMonths', np.nan))
+        revenue_growth = info.get('revenueGrowth', np.nan) * 100 if info.get('revenueGrowth') else np.nan
+        earnings_growth = info.get('earningsGrowth', np.nan) * 100 if info.get('earningsGrowth') else np.nan
+        dividend_yield = info.get('dividendYield', np.nan) * 100 if info.get('dividendYield') else np.nan
+        payout_ratio = info.get('payoutRatio', np.nan) * 100 if info.get('payoutRatio') else np.nan
+        
+        # Data fundamental
+        book_value = info.get('bookValue', np.nan)
+        total_revenue = info.get('totalRevenue', np.nan)
+        net_income = info.get('netIncomeToCommon', np.nan)
+        total_debt = info.get('totalDebt', np.nan)
+        total_equity = info.get('totalStockholderEquity', np.nan)
+        free_cash_flow = info.get('freeCashflow', np.nan)
+        operating_cash_flow = info.get('operatingCashflow', np.nan)
+        
+        # Dapatkan data historis rasio
+        financials = stock.financials
+        balance_sheet = stock.balance_sheet
+        cash_flow = stock.cashflow
+        
+        # Siapkan data historis
+        historical_ratios = {}
+        
+        # Historis ROE
+        if not financials.empty and not balance_sheet.empty:
+            net_income_hist = financials.loc['Net Income'] if 'Net Income' in financials.index else None
+            equity_hist = balance_sheet.loc['Total Stockholder Equity'] if 'Total Stockholder Equity' in balance_sheet.index else None
+            
+            if net_income_hist is not None and equity_hist is not None:
+                roe_hist = (net_income_hist / equity_hist) * 100
+                historical_ratios['ROE'] = roe_hist
+                
+        # Historis DER
+        if not balance_sheet.empty:
+            total_debt_hist = balance_sheet.loc['Total Debt'] if 'Total Debt' in balance_sheet.index else None
+            total_equity_hist = balance_sheet.loc['Total Stockholder Equity'] if 'Total Stockholder Equity' in balance_sheet.index else None
+            
+            if total_debt_hist is not None and total_equity_hist is not None:
+                der_hist = (total_debt_hist / total_equity_hist) * 100
+                historical_ratios['DER'] = der_hist
+        
+        # Historis NPM
+        if not financials.empty:
+            net_income_hist = financials.loc['Net Income'] if 'Net Income' in financials.index else None
+            revenue_hist = financials.loc['Total Revenue'] if 'Total Revenue' in financials.index else None
+            
+            if net_income_hist is not None and revenue_hist is not None:
+                npm_hist = (net_income_hist / revenue_hist) * 100
+                historical_ratios['NPM'] = npm_hist
+                
+        # Historis EPS
+        if not financials.empty:
+            eps_hist = financials.loc['Diluted EPS'] if 'Diluted EPS' in financials.index else None
+            if eps_hist is not None:
+                historical_ratios['EPS'] = eps_hist
+                
+        # Historis Revenue Growth
+        if not financials.empty:
+            revenue_hist = financials.loc['Total Revenue'] if 'Total Revenue' in financials.index else None
+            if revenue_hist is not None:
+                revenue_growth_hist = revenue_hist.pct_change(periods=-1) * 100
+                historical_ratios['Revenue Growth'] = revenue_growth_hist
+        
+        return {
+            'current_price': current_price,
+            'prev_close': prev_close,
+            'market_cap': market_cap,
+            'volume': volume,
+            'avg_volume': avg_volume,
+            'roe': roe,
+            'roa': roa,
+            'npm': npm,
+            'gross_margin': gross_margin,
+            'operating_margin': operating_margin,
+            'pe_ratio': pe_ratio,
+            'pb_ratio': pb_ratio,
+            'ps_ratio': ps_ratio,
+            'ev_ebitda': ev_ebitda,
+            'der': der,
+            'current_ratio': current_ratio,
+            'quick_ratio': quick_ratio,
+            'interest_coverage': interest_coverage,
+            'eps': eps,
+            'revenue_growth': revenue_growth,
+            'earnings_growth': earnings_growth,
+            'dividend_yield': dividend_yield,
+            'payout_ratio': payout_ratio,
+            'book_value': book_value,
+            'total_revenue': total_revenue,
+            'net_income': net_income,
+            'total_debt': total_debt,
+            'total_equity': total_equity,
+            'free_cash_flow': free_cash_flow,
+            'operating_cash_flow': operating_cash_flow,
+            'historical_ratios': historical_ratios
+        }
+    except Exception as e:
+        st.error(f"Error mendapatkan data fundamental untuk {ticker}: {str(e)}")
+        return {}
+
+def display_fundamental_analysis(ticker, financial_data):
+    """Menampilkan analisis fundamental saham"""
+    st.subheader(f"Analisis Fundamental {ticker}")
+    
+    # Tampilkan metrik utama
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Harga", 
+               f"Rp {financial_data['current_price']:,.0f}", 
+               f"{((financial_data['current_price'] - financial_data['prev_close'])/financial_data['prev_close']*100):.2f}%" if not np.isnan(financial_data['prev_close']) else "N/A")
+    col1.metric("Kapitalisasi Pasar", f"Rp {financial_data['market_cap']:,.2f}" if not np.isnan(financial_data['market_cap']) else "N/A")
+    
+    col2.metric("Volume", f"{financial_data['volume']:,.0f}", 
+               f"{(financial_data['volume']/financial_data['avg_volume']*100 if not np.isnan(financial_data['avg_volume']) and financial_data['avg_volume'] > 0 else 0):.0f}% vs rata-rata" if not np.isnan(financial_data['volume']) else "N/A")
+    col2.metric("EPS", f"Rp {financial_data['eps']:,.0f}" if not np.isnan(financial_data['eps']) else "N/A")
+    
+    col3.metric("ROE", f"{financial_data['roe']:.2f}%" if not np.isnan(financial_data['roe']) else "N/A", 
+               ">15% bagus" if not np.isnan(financial_data['roe']) and financial_data['roe'] > 15 else "<10% kurang")
+    col3.metric("DER", f"{financial_data['der']:.2f}%" if not np.isnan(financial_data['der']) else "N/A", 
+               "<80% sehat" if not np.isnan(financial_data['der']) and financial_data['der'] < 80 else ">100% berisiko")
+    
+    col4.metric("NPM", f"{financial_data['npm']:.2f}%" if not np.isnan(financial_data['npm']) else "N/A", 
+               ">20% bagus" if not np.isnan(financial_data['npm']) and financial_data['npm'] > 20 else "<10% kurang")
+    col4.metric("Dividen Yield", f"{financial_data['dividend_yield']:.2f}%" if not np.isnan(financial_data['dividend_yield']) else "N/A")
+    
+    # Tab untuk berbagai kategori rasio
+    tab_ratios, tab_fundamental, tab_hist = st.tabs(["Rasio Keuangan", "Data Fundamental", "Analisis Historis"])
+    
+    with tab_ratios:
+        st.subheader("Rasio Keuangan Utama")
+        
+        # Buat DataFrame untuk rasio
+        ratio_data = {
+            'Kategori': ['Profitabilitas', 'Profitabilitas', 'Profitabilitas', 'Profitabilitas', 
+                         'Valuasi', 'Valuasi', 'Valuasi', 'Valuasi',
+                         'Solvabilitas', 'Solvabilitas', 'Solvabilitas', 'Solvabilitas',
+                         'Kinerja', 'Kinerja', 'Kinerja', 'Kinerja'],
+            'Rasio': ['ROE', 'ROA', 'NPM', 'Gross Margin',
+                      'PER', 'PBV', 'PSR', 'EV/EBITDA',
+                      'DER', 'Current Ratio', 'Quick Ratio', 'Interest Coverage',
+                      'EPS', 'Revenue Growth', 'Earnings Growth', 'Dividend Yield'],
+            'Nilai': [financial_data['roe'], financial_data['roa'], financial_data['npm'], financial_data['gross_margin'],
+                      financial_data['pe_ratio'], financial_data['pb_ratio'], financial_data['ps_ratio'], financial_data['ev_ebitda'],
+                      financial_data['der'], financial_data['current_ratio'], financial_data['quick_ratio'], financial_data['interest_coverage'],
+                      financial_data['eps'], financial_data['revenue_growth'], financial_data['earnings_growth'], financial_data['dividend_yield']],
+            'Interpretasi': [
+                'Return on Equity > 15% bagus',
+                'Return on Assets > 5% bagus',
+                'Net Profit Margin > 20% bagus',
+                'Gross Margin > 40% bagus',
+                'PER rendah lebih baik',
+                'PBV < 1 potensi undervalued',
+                'PSR < 1 bagus',
+                'EV/EBITDA < 10 bagus',
+                'DER < 80% sehat',
+                'Current Ratio > 1.5 bagus',
+                'Quick Ratio > 1 bagus',
+                'Interest Coverage > 3 bagus',
+                'EPS tinggi lebih baik',
+                'Revenue Growth positif bagus',
+                'Earnings Growth positif bagus',
+                'Dividend Yield > 3% bagus'
+            ]
+        }
+        
+        ratio_df = pd.DataFrame(ratio_data)
+        
+        # Tampilkan tabel dengan warna
+        def color_ratios(val):
+            if val == 'ROE' and not np.isnan(financial_data['roe']):
+                return 'background-color: lightgreen' if financial_data['roe'] > 15 else 'background-color: salmon'
+            elif val == 'DER' and not np.isnan(financial_data['der']):
+                return 'background-color: lightgreen' if financial_data['der'] < 80 else 'background-color: salmon'
+            elif val == 'NPM' and not np.isnan(financial_data['npm']):
+                return 'background-color: lightgreen' if financial_data['npm'] > 20 else 'background-color: salmon'
+            elif val == 'PER' and not np.isnan(financial_data['pe_ratio']):
+                return 'background-color: lightgreen' if financial_data['pe_ratio'] < 20 else 'background-color: salmon'
+            return ''
+        
+        st.dataframe(
+            ratio_df.style.applymap(color_ratios, subset=['Rasio']).format({
+                'Nilai': '{:.2f}'
+            }),
+            height=600
+        )
+    
+    with tab_fundamental:
+        st.subheader("Data Fundamental")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write("### Neraca Keuangan")
+            st.metric("Total Aset", f"Rp {financial_data['total_equity'] + financial_data['total_debt']:,.0f}" if not np.isnan(financial_data['total_equity']) and not np.isnan(financial_data['total_debt']) else "N/A")
+            st.metric("Total Ekuitas", f"Rp {financial_data['total_equity']:,.0f}" if not np.isnan(financial_data['total_equity']) else "N/A")
+            st.metric("Total Hutang", f"Rp {financial_data['total_debt']:,.0f}" if not np.isnan(financial_data['total_debt']) else "N/A")
+            st.metric("Nilai Buku per Saham", f"Rp {financial_data['book_value']:,.0f}" if not np.isnan(financial_data['book_value']) else "N/A")
+        
+        with col2:
+            st.write("### Laporan Laba Rugi")
+            st.metric("Pendapatan", f"Rp {financial_data['total_revenue']:,.0f}" if not np.isnan(financial_data['total_revenue']) else "N/A")
+            st.metric("Laba Bersih", f"Rp {financial_data['net_income']:,.0f}" if not np.isnan(financial_data['net_income']) else "N/A")
+            st.metric("Arus Kas Operasi", f"Rp {financial_data['operating_cash_flow']:,.0f}" if not np.isnan(financial_data['operating_cash_flow']) else "N/A")
+            st.metric("Arus Kas Bebas", f"Rp {financial_data['free_cash_flow']:,.0f}" if not np.isnan(financial_data['free_cash_flow']) else "N/A")
+    
+    with tab_hist:
+        st.subheader("Analisis Historis Rasio")
+        
+        # Pilih rasio untuk ditampilkan
+        selected_ratio = st.selectbox("Pilih Rasio untuk Analisis Historis", 
+                                     ['ROE', 'DER', 'NPM', 'EPS', 'Revenue Growth'])
+        
+        if financial_data['historical_ratios'].get(selected_ratio) is not None:
+            ratio_hist = financial_data['historical_ratios'][selected_ratio]
+            
+            # Buat DataFrame
+            hist_df = pd.DataFrame({
+                'Tahun': ratio_hist.index.year,
+                'Nilai': ratio_hist.values
+            })
+            
+            # Tampilkan grafik
+            fig = px.line(
+                hist_df, 
+                x='Tahun', 
+                y='Nilai',
+                title=f'Perkembangan {selected_ratio} Historis',
+                markers=True,
+                text='Nilai'
+            )
+            
+            fig.update_traces(textposition='top center')
+            fig.update_layout(
+                yaxis_title=selected_ratio,
+                template='plotly_white',
+                hovermode='x unified',
+                height=500
+            )
+            
+            # Tampilkan rata-rata
+            avg_value = ratio_hist.mean()
+            last_value = ratio_hist.iloc[0]
+            
+            fig.add_hline(
+                y=avg_value,
+                line_dash="dash",
+                line_color="red",
+                annotation_text=f"Rata-rata: {avg_value:.2f}",
+                annotation_position="bottom right"
+            )
+            
+            # Analisis tren
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Interpretasi tren
+            if len(ratio_hist) > 1:
+                trend = "Meningkat" if last_value > ratio_hist.iloc[1] else "Menurun"
+                st.write(f"**Tren {selected_ratio}:** {trend} ({last_value:.2f} vs {ratio_hist.iloc[1]:.2f} tahun sebelumnya)")
+                
+                if selected_ratio == 'ROE':
+                    st.info("ROE yang stabil di atas 15% menunjukkan efisiensi penggunaan modal yang baik")
+                elif selected_ratio == 'DER':
+                    st.info("DER di bawah 80% menunjukkan struktur modal yang sehat")
+                elif selected_ratio == 'NPM':
+                    st.info("NPM di atas 20% menunjukkan kemampuan menghasilkan laba yang kuat")
+                elif selected_ratio == 'EPS':
+                    st.info("EPS yang meningkat menunjukkan pertumbuhan laba per saham")
+                elif selected_ratio == 'Revenue Growth':
+                    st.info("Pertumbuhan pendapatan positif menunjukkan ekspansi bisnis")
+            else:
+                st.warning("Data historis tidak cukup untuk analisis tren")
+        else:
+            st.warning(f"Data historis untuk {selected_ratio} tidak tersedia")
+    
+    # Analisis kesehatan keuangan
+    st.subheader("Analisis Kesehatan Keuangan")
+    col1, col2, col3 = st.columns(3)
+    
+    # Profitabilitas
+    profit_score = 0
+    if not np.isnan(financial_data['roe']) and financial_data['roe'] > 15:
+        profit_score += 1
+    if not np.isnan(financial_data['npm']) and financial_data['npm'] > 20:
+        profit_score += 1
+    if not np.isnan(financial_data['gross_margin']) and financial_data['gross_margin'] > 40:
+        profit_score += 1
+    
+    col1.metric("Profitabilitas", f"{profit_score}/3", 
+               "Sangat Baik" if profit_score >= 2 else "Cukup" if profit_score == 1 else "Kurang")
+    
+    # Solvabilitas
+    solv_score = 0
+    if not np.isnan(financial_data['der']) and financial_data['der'] < 80:
+        solv_score += 1
+    if not np.isnan(financial_data['current_ratio']) and financial_data['current_ratio'] > 1.5:
+        solv_score += 1
+    if not np.isnan(financial_data['interest_coverage']) and financial_data['interest_coverage'] > 3:
+        solv_score += 1
+    
+    col2.metric("Solvabilitas", f"{solv_score}/3", 
+               "Sangat Sehat" if solv_score >= 2 else "Cukup" if solv_score == 1 else "Berisiko")
+    
+    # Pertumbuhan
+    growth_score = 0
+    if not np.isnan(financial_data['revenue_growth']) and financial_data['revenue_growth'] > 10:
+        growth_score += 1
+    if not np.isnan(financial_data['earnings_growth']) and financial_data['earnings_growth'] > 10:
+        growth_score += 1
+    if not np.isnan(financial_data['eps']) and financial_data['eps'] > 0:
+        growth_score += 1
+    
+    col3.metric("Pertumbuhan", f"{growth_score}/3", 
+               "Kuat" if growth_score >= 2 else "Sedang" if growth_score == 1 else "Lemah")
+    
+    # Rekomendasi keseluruhan
+    total_score = profit_score + solv_score + growth_score
+    if total_score >= 7:
+        st.success("**REKOMENDASI: BELI** - Kesehatan keuangan sangat baik dengan skor 8-9")
+    elif total_score >= 5:
+        st.warning("**REKOMENDASI: TAHAN** - Kesehatan keuangan cukup baik dengan skor 5-7")
+    else:
+        st.error("**REKOMENDASI: JUAL** - Kesehatan keuangan kurang baik dengan skor di bawah 5")
+    
+    st.write(f"**Total Skor Kesehatan Keuangan:** {total_score}/9")
+
+# ========================================================
 # TAMPILAN STREAMLIT
 # ========================================================
 
 # Tampilan Streamlit
-st.title("📈 Analisis Portofolio Saham & Valuasi")
+st.title("📈 Analisis Portofolio Saham & Fundamental")
 
 # Buat tab untuk navigasi
-tab1, tab2, tab3, tab4 = st.tabs(["Analisis Portofolio", "Simulasi Pensiun", "Prediksi Harga", "Valuasi Saham"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Analisis Portofolio", "Simulasi Pensiun", "Prediksi Harga", "Valuasi Saham", "Analisis Fundamental"])
 
 with tab1:
     # Input modal dan indeks di sidebar
@@ -1678,6 +2038,143 @@ with tab4:
     st.markdown("---")
     st.info("🚨 **Peringatan Investasi**: Prediksi harga saham bersifat spekulatif dan tidak dapat dijadikan satu-satunya acuan pengambilan keputusan investasi. Selalu lakukan analisis fundamental dan pertimbangkan risiko investasi.")
 
-# Catatan kaki
-st.markdown("---")
-st.caption("© 2023 Tools Analisis Saham | Data harga saham bersumber dari Yahoo Finance | Support level dihitung menggunakan moving average, Fibonacci, dan pivot points | Prediksi menggunakan LSTM dan Prophet")
+with tab5:
+    st.header("📊 Analisis Fundamental Saham")
+    st.write("""
+    Analisis rasio keuangan dan fundamental perusahaan:
+    - **Profitabilitas**: ROE, ROA, NPM, Gross Margin
+    - **Solvabilitas**: DER, Current Ratio, Quick Ratio
+    - **Valuasi**: PER, PBV, PSR, EV/EBITDA
+    - **Kinerja**: EPS, Pertumbuhan Pendapatan, Pertumbuhan Laba
+    - **Dividen**: Dividend Yield, Payout Ratio
+    """)
+    
+    # Pilih indeks saham
+    col1, col2 = st.columns(2)
+    with col1:
+        index_selection = st.selectbox("Pilih Indeks Saham", ["Kompas100", "LQ45"], key="fundamental_index")
+        
+        # Pilih saham berdasarkan indeks
+        stocks = KOMPAS100 if index_selection == "Kompas100" else LQ45
+        selected_stock = st.selectbox("Pilih Saham", stocks, key="fundamental_stock")
+    
+    with col2:
+        st.write("### Benchmark Industri")
+        industry_roe = st.number_input("ROE Rata-rata Industri (%)", min_value=0.0, value=15.0, step=0.5, key="industry_roe")
+        industry_der = st.number_input("DER Rata-rata Industri (%)", min_value=0.0, value=80.0, step=1.0, key="industry_der")
+        industry_npm = st.number_input("NPM Rata-rata Industri (%)", min_value=0.0, value=20.0, step=0.5, key="industry_npm")
+    
+    # Dapatkan data fundamental
+    ticker = f"{selected_stock}.JK"
+    financial_data = get_financial_ratios(ticker)
+    
+    if financial_data:
+        display_fundamental_analysis(ticker, financial_data)
+    else:
+        st.error("Tidak dapat mendapatkan data fundamental untuk saham ini")
+    
+    # Penjelasan rasio keuangan
+    st.markdown("---")
+    with st.expander("📚 Penjelasan Rasio Keuangan"):
+        st.subheader("ROE (Return on Equity)")
+        st.write("""
+        **Rumus:**  
+        ROE = (Laba Bersih / Ekuitas Pemegang Saham) × 100%  
+        
+        **Interpretasi:**  
+        Mengukur efisiensi penggunaan modal sendiri.  
+        - ROE > 15%: Sangat baik  
+        - ROE 10-15%: Baik  
+        - ROE < 10%: Kurang  
+        
+        **Kelebihan:**  
+        - Indikator utama profitabilitas  
+        - Mudah dibandingkan antar perusahaan  
+        
+        **Kekurangan:**  
+        - Dapat dimanipulasi dengan mengurangi ekuitas  
+        - Tidak memperhitungkan hutang  
+        """)
+        
+        st.subheader("DER (Debt to Equity Ratio)")
+        st.write("""
+        **Rumus:**  
+        DER = (Total Hutang / Ekuitas Pemegang Saham) × 100%  
+        
+        **Interpretasi:**  
+        Mengukur proporsi hutang terhadap ekuitas.  
+        - DER < 80%: Sehat  
+        - DER 80-150%: Hati-hati  
+        - DER > 150%: Berisiko tinggi  
+        
+        **Kelebihan:**  
+        - Menunjukkan risiko finansial perusahaan  
+        - Indikator struktur modal  
+        
+        **Kekurangan:**  
+        - Tidak membedakan jenis hutang  
+        - Industri berbeda memiliki standar berbeda  
+        """)
+        
+        st.subheader("NPM (Net Profit Margin)")
+        st.write("""
+        **Rumus:**  
+        NPM = (Laba Bersih / Pendapatan) × 100%  
+        
+        **Interpretasi:**  
+        Mengukur persentase laba dari pendapatan.  
+        - NPM > 20%: Sangat efisien  
+        - NPM 10-20%: Baik  
+        - NPM < 10%: Kurang  
+        
+        **Kelebihan:**  
+        - Menunjukkan efisiensi operasional  
+        - Dapat dibandingkan antar industri  
+        
+        **Kekurangan:**  
+        - Tidak memperhitungkan struktur modal  
+        - Dapat dipengaruhi oleh biaya non-operasional  
+        """)
+        
+        st.subheader("EPS (Earnings Per Share)")
+        st.write("""
+        **Rumus:**  
+        EPS = Laba Bersih / Jumlah Saham Beredar  
+        
+        **Interpretasi:**  
+        Mengukur laba yang dihasilkan per lembar saham.  
+        - EPS tinggi: Lebih baik  
+        - EPS meningkat: Pertumbuhan baik  
+        
+        **Kelebihan:**  
+        - Langsung terkait dengan nilai pemegang saham  
+        - Dasar perhitungan PER  
+        
+        **Kekurangan:**  
+        - Tidak memperhitungkan struktur modal  
+        - Dapat dimanipulasi dengan pembelian kembali saham  
+        """)
+        
+        st.subheader("Pertumbuhan Pendapatan")
+        st.write("""
+        **Rumus:**  
+        Pertumbuhan = ((Pendapatan Tahun Ini - Pendapatan Tahun Lalu) / Pendapatan Tahun Lalu) × 100%  
+        
+        **Interpretasi:**  
+        Mengukur pertumbuhan bisnis perusahaan.  
+        - >20%: Pertumbuhan tinggi  
+        - 10-20%: Pertumbuhan sedang  
+        - <10%: Pertumbuhan rendah  
+        
+        **Kelebihan:**  
+        - Indikator utama ekspansi bisnis  
+        - Prospek masa depan perusahaan  
+        
+        **Kekurangan:**  
+        - Tidak menunjukkan profitabilitas  
+        - Dapat dipengaruhi oleh akuisisi  
+        """)
+    
+    st.markdown("---")
+    st.info("⚠️ **Peringatan Analisis**: Rasio keuangan hanyalah salah satu alat analisis. "
+            "Selalu pertimbangkan faktor kualitatif dan kondisi industri sebelum membuat keputusan investasi.")
