@@ -1288,14 +1288,251 @@ def display_fundamental_analysis(ticker, financial_data):
     st.write(f"**Total Skor Kesehatan Keuangan:** {total_score}/9")
 
 # ========================================================
+# FUNGSI BARU: INDIKATOR TEKNIKAL
+# ========================================================
+
+def calculate_rsi(data, window=14):
+    """Menghitung Relative Strength Index (RSI)"""
+    delta = data['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).fillna(0)
+    loss = (-delta.where(delta < 0, 0)).fillna(0)
+    
+    avg_gain = gain.rolling(window=window).mean()
+    avg_loss = loss.rolling(window=window).mean()
+    
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    
+    # Isi nilai awal dengan NaN
+    rsi[:window] = np.nan
+    
+    return rsi
+
+def calculate_macd(data, fast=12, slow=26, signal=9):
+    """Menghitung Moving Average Convergence Divergence (MACD)"""
+    close = data['Close']
+    ema_fast = close.ewm(span=fast, adjust=False).mean()
+    ema_slow = close.ewm(span=slow, adjust=False).mean()
+    
+    macd_line = ema_fast - ema_slow
+    signal_line = macd_line.ewm(span=signal, adjust=False).mean()
+    macd_hist = macd_line - signal_line
+    
+    return macd_line, signal_line, macd_hist
+
+def calculate_bollinger_bands(data, window=20, num_std=2):
+    """Menghitung Bollinger Bands"""
+    close = data['Close']
+    sma = close.rolling(window=window).mean()
+    std = close.rolling(window=window).std()
+    
+    upper_band = sma + (std * num_std)
+    lower_band = sma - (std * num_std)
+    
+    return sma, upper_band, lower_band
+
+def calculate_technical_indicators(data):
+    """Menghitung semua indikator teknikal"""
+    if data.empty:
+        return data
+    
+    # Hitung RSI
+    data['RSI'] = calculate_rsi(data)
+    
+    # Hitung MACD
+    macd_line, signal_line, macd_hist = calculate_macd(data)
+    data['MACD'] = macd_line
+    data['MACD_Signal'] = signal_line
+    data['MACD_Hist'] = macd_hist
+    
+    # Hitung Bollinger Bands
+    data['SMA20'], data['BB_Upper'], data['BB_Lower'] = calculate_bollinger_bands(data)
+    
+    return data
+
+def generate_technical_signals(data):
+    """Membuat sinyal teknikal berdasarkan indikator"""
+    signals = []
+    
+    if data.empty:
+        return pd.DataFrame()
+    
+    # Sinyal RSI
+    if 'RSI' in data.columns:
+        latest_rsi = data['RSI'].iloc[-1]
+        if latest_rsi > 70:
+            signals.append(('RSI', 'Overbought', 'Jual', 'red'))
+        elif latest_rsi < 30:
+            signals.append(('RSI', 'Oversold', 'Beli', 'green'))
+        else:
+            signals.append(('RSI', 'Netral', 'Tahan', 'yellow'))
+    
+    # Sinyal MACD
+    if 'MACD' in data.columns and 'MACD_Signal' in data.columns:
+        macd = data['MACD'].iloc[-1]
+        signal = data['MACD_Signal'].iloc[-1]
+        prev_macd = data['MACD'].iloc[-2]
+        prev_signal = data['MACD_Signal'].iloc[-2]
+        
+        # Golden Cross
+        if macd > signal and prev_macd <= prev_signal:
+            signals.append(('MACD', 'Golden Cross', 'Beli', 'green'))
+        # Death Cross
+        elif macd < signal and prev_macd >= prev_signal:
+            signals.append(('MACD', 'Death Cross', 'Jual', 'red'))
+        else:
+            if macd > signal:
+                signals.append(('MACD', 'Bullish', 'Tahan', 'yellow'))
+            else:
+                signals.append(('MACD', 'Bearish', 'Tahan', 'yellow'))
+    
+    # Sinyal Bollinger Bands
+    if 'Close' in data.columns and 'BB_Upper' in data.columns and 'BB_Lower' in data.columns:
+        close = data['Close'].iloc[-1]
+        bb_upper = data['BB_Upper'].iloc[-1]
+        bb_lower = data['BB_Lower'].iloc[-1]
+        
+        if close > bb_upper:
+            signals.append(('Bollinger Bands', 'Overbought', 'Jual', 'red'))
+        elif close < bb_lower:
+            signals.append(('Bollinger Bands', 'Oversold', 'Beli', 'green'))
+        else:
+            signals.append(('Bollinger Bands', 'Netral', 'Tahan', 'yellow'))
+    
+    # Sinyal Volume
+    if 'Volume' in data.columns:
+        volume = data['Volume'].iloc[-1]
+        avg_volume = data['Volume'].tail(20).mean()
+        
+        if volume > avg_volume * 1.5:
+            signals.append(('Volume', 'Volume Tinggi', 'Konfirmasi', 'blue'))
+        elif volume < avg_volume * 0.5:
+            signals.append(('Volume', 'Volume Rendah', 'Hati-hati', 'orange'))
+    
+    return pd.DataFrame(signals, columns=['Indikator', 'Sinyal', 'Rekomendasi', 'Warna'])
+
+def plot_technical_analysis(data, ticker):
+    """Membuat grafik analisis teknikal"""
+    fig = make_subplots(
+        rows=4, 
+        cols=1, 
+        shared_xaxes=True,
+        vertical_spacing=0.05,
+        row_heights=[0.5, 0.15, 0.15, 0.2],
+        specs=[[{"secondary_y": True}], [{}], [{}], [{}]]
+    )
+    
+    # Grafik harga dan Bollinger Bands
+    fig.add_trace(
+        go.Scatter(x=data.index, y=data['Close'], name='Harga', line=dict(color='#1f77b4')),
+        row=1, col=1
+    )
+    
+    fig.add_trace(
+        go.Scatter(x=data.index, y=data['SMA20'], name='SMA 20', line=dict(color='orange', width=1)),
+        row=1, col=1
+    )
+    
+    fig.add_trace(
+        go.Scatter(x=data.index, y=data['BB_Upper'], name='BB Upper', line=dict(color='rgba(255,0,0,0.3)', width=1)),
+        row=1, col=1
+    )
+    
+    fig.add_trace(
+        go.Scatter(x=data.index, y=data['BB_Lower'], name='BB Lower', line=dict(color='rgba(0,255,0,0.3)', width=1)),
+        row=1, col=1
+    )
+    
+    fig.add_trace(
+        go.Scatter(x=data.index, y=data['SMA20'], name='SMA 20', line=dict(color='orange', width=2)),
+        row=1, col=1
+    )
+    
+    # Isi area Bollinger Bands
+    fig.add_trace(
+        go.Scatter(
+            x=np.concatenate([data.index, data.index[::-1]]),
+            y=np.concatenate([data['BB_Upper'], data['BB_Lower'][::-1]]),
+            fill='toself',
+            fillcolor='rgba(100,100,100,0.2)',
+            line=dict(color='rgba(255,255,255,0)'),
+            name='Bollinger Bands'
+        ),
+        row=1, col=1
+    )
+    
+    # Grafik Volume
+    colors = ['green' if data['Close'].iloc[i] > data['Close'].iloc[i-1] else 'red' 
+              for i in range(len(data))]
+    fig.add_trace(
+        go.Bar(x=data.index, y=data['Volume'], name='Volume', marker_color=colors),
+        row=2, col=1
+    )
+    
+    # Grafik RSI
+    fig.add_trace(
+        go.Scatter(x=data.index, y=data['RSI'], name='RSI', line=dict(color='purple')),
+        row=3, col=1
+    )
+    fig.add_hline(y=70, line_dash="dash", line_color="red", row=3, col=1)
+    fig.add_hline(y=30, line_dash="dash", line_color="green", row=3, col=1)
+    fig.add_hline(y=50, line_dash="dot", line_color="gray", row=3, col=1)
+    
+    # Grafik MACD
+    fig.add_trace(
+        go.Scatter(x=data.index, y=data['MACD'], name='MACD', line=dict(color='blue')),
+        row=4, col=1
+    )
+    fig.add_trace(
+        go.Scatter(x=data.index, y=data['MACD_Signal'], name='Signal', line=dict(color='orange')),
+        row=4, col=1
+    )
+    
+    # Histogram MACD
+    colors_macd = ['green' if h >= 0 else 'red' for h in data['MACD_Hist']]
+    fig.add_trace(
+        go.Bar(x=data.index, y=data['MACD_Hist'], name='MACD Hist', marker_color=colors_macd),
+        row=4, col=1
+    )
+    
+    # Konfigurasi layout
+    fig.update_layout(
+        title=f'Analisis Teknikal {ticker}',
+        height=900,
+        showlegend=True,
+        template='plotly_dark',
+        hovermode='x unified'
+    )
+    
+    fig.update_yaxes(title_text="Harga", row=1, col=1)
+    fig.update_yaxes(title_text="Volume", row=2, col=1)
+    fig.update_yaxes(title_text="RSI", range=[0, 100], row=3, col=1)
+    fig.update_yaxes(title_text="MACD", row=4, col=1)
+    fig.update_xaxes(title_text="Tanggal", row=4, col=1)
+    
+    return fig
+
+# ========================================================
 # TAMPILAN STREAMLIT
 # ========================================================
 
+# ========================================================
+# KODE UTAMA (TAB BARU: ANALISIS TEKNIKAL)
+# ========================================================
+
 # Tampilan Streamlit
-st.title("📈 Analisis Portofolio Saham & Fundamental")
+st.title("📈 Analisis Saham Komprehensif")
 
 # Buat tab untuk navigasi
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["Analisis Portofolio", "Simulasi Pensiun", "Prediksi Harga", "Valuasi Saham", "Analisis Fundamental"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "Analisis Portofolio", 
+    "Simulasi Pensiun", 
+    "Prediksi Harga", 
+    "Valuasi Saham", 
+    "Analisis Fundamental",
+    "Analisis Teknikal"
+])
+
 
 with tab1:
     # Input modal dan indeks di sidebar
@@ -2174,6 +2411,187 @@ with tab5:
         - Tidak menunjukkan profitabilitas  
         - Dapat dipengaruhi oleh akuisisi  
         """)
+    with tab6:
+    st.header("📊 Analisis Teknikal Saham")
+    st.write("""
+    Analisis pergerakan harga saham menggunakan indikator teknikal:
+    - **RSI (Relative Strength Index)**: Mengukur momentum dan kondisi overbought/oversold
+    - **MACD (Moving Average Convergence Divergence)**: Mengidentifikasi perubahan momentum
+    - **Bollinger Bands**: Mengukur volatilitas dan tingkat harga relatif
+    """)
+    
+    # Pilih indeks saham
+    col1, col2 = st.columns(2)
+    with col1:
+        index_selection = st.selectbox("Pilih Indeks Saham", ["Kompas100", "LQ45"], key="tech_index")
+        
+        # Pilih saham berdasarkan indeks
+        stocks = KOMPAS100 if index_selection == "Kompas100" else LQ45
+        selected_stock = st.selectbox("Pilih Saham", stocks, key="tech_stock")
+    
+    with col2:
+        st.write("### Parameter Analisis")
+        period = st.selectbox("Periode Data", ['1 Bulan', '3 Bulan', '6 Bulan', '1 Tahun', '2 Tahun'], index=3)
+        window_map = {
+            '1 Bulan': 30,
+            '3 Bulan': 90,
+            '6 Bulan': 180,
+            '1 Tahun': 365,
+            '2 Tahun': 730
+        }
+        days = window_map[period]
+        
+        # Parameter indikator
+        st.write("**Parameter Indikator:**")
+        rsi_window = st.slider("RSI Period", 5, 30, 14, key="rsi_window")
+        bb_window = st.slider("Bollinger Bands Period", 10, 50, 20, key="bb_window")
+        bb_std = st.slider("Bollinger Bands Std Dev", 1.0, 3.0, 2.0, step=0.1, key="bb_std")
+    
+    # Dapatkan data harga
+    ticker = f"{selected_stock}.JK"
+    try:
+        data = yf.download(ticker, period=f"{days}d")
+        
+        if data.empty:
+            st.error(f"Tidak dapat mengambil data untuk {ticker}")
+        else:
+            # Hitung indikator teknikal
+            data = calculate_technical_indicators(data)
+            
+            # Tampilkan sinyal terbaru
+            st.subheader(f"Sinyal Teknikal Terkini - {selected_stock}")
+            signals_df = generate_technical_signals(data)
+            
+            if not signals_df.empty:
+                # Fungsi styling
+                def color_signal(row):
+                    color = row['Warna']
+                    return [f'background-color: {color}; color: white'] * len(row)
+                
+                st.dataframe(
+                    signals_df.style.apply(color_signal, axis=1),
+                    height=200
+                )
+                
+                # Ringkasan sinyal
+                buy_signals = signals_df[signals_df['Rekomendasi'] == 'Beli'].shape[0]
+                sell_signals = signals_df[signals_df['Rekomendasi'] == 'Jual'].shape[0]
+                
+                col1, col2 = st.columns(2)
+                col1.metric("Sinyal Beli", buy_signals)
+                col2.metric("Sinyal Jual", sell_signals)
+                
+                if buy_signals > sell_signals:
+                    st.success("**REKOMENDASI: BELI** - Lebih banyak sinyal beli")
+                elif sell_signals > buy_signals:
+                    st.error("**REKOMENDASI: JUAL** - Lebih banyak sinyal jual")
+                else:
+                    st.warning("**REKOMENDASI: TAHAN** - Sinyal netral")
+            else:
+                st.warning("Tidak ada sinyal teknikal yang terdeteksi")
+            
+            # Tampilkan grafik
+            st.subheader(f"Grafik Analisis Teknikal - {selected_stock}")
+            fig = plot_technical_analysis(data, ticker)
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Tampilkan data mentah
+            with st.expander("Lihat Data Teknikal", expanded=False):
+                st.dataframe(data.tail(20).style.format({
+                    'Close': '{:.0f}',
+                    'SMA20': '{:.0f}',
+                    'BB_Upper': '{:.0f}',
+                    'BB_Lower': '{:.0f}',
+                    'RSI': '{:.2f}',
+                    'MACD': '{:.2f}',
+                    'MACD_Signal': '{:.2f}',
+                    'MACD_Hist': '{:.2f}'
+                }))
+                
+    except Exception as e:
+        st.error(f"Error mendapatkan data untuk {ticker}: {str(e)}")
+    
+    # Penjelasan indikator teknikal
+    st.markdown("---")
+    with st.expander("📚 Penjelasan Indikator Teknikal"):
+        st.subheader("RSI (Relative Strength Index)")
+        st.write("""
+        **Rumus:**  
+        RSI = 100 - (100 / (1 + (RS)))  
+        Dimana RS = Rata-rata kenaikan harga / Rata-rata penurunan harga  
+        
+        **Interpretasi:**  
+        - **70-100**: Overbought (potensi penurunan harga)
+        - **30-70**: Netral
+        - **0-30**: Oversold (potensi kenaikan harga)
+        
+        **Sinyal Trading:**  
+        - **Beli**: Ketika RSI turun di bawah 30 kemudian naik kembali
+        - **Jual**: Ketika RSI naik di atas 70 kemudian turun kembali
+        - **Divergensi**: Ketika harga membuat higher high tapi RSI lower high (bearish) atau sebaliknya (bullish)
+        
+        **Kelebihan:**  
+        - Sangat baik untuk mengidentifikasi kondisi jenuh beli/jual
+        - Mudah diinterpretasikan
+        
+        **Kekurangan:**  
+        - Dapat memberikan sinyal palsu di pasar trending kuat
+        - Tidak bekerja baik di semua timeframe
+        """)
+        
+        st.subheader("MACD (Moving Average Convergence Divergence)")
+        st.write("""
+        **Rumus:**  
+        MACD Line = EMA(12) - EMA(26)  
+        Signal Line = EMA(9) dari MACD Line  
+        MACD Histogram = MACD Line - Signal Line  
+        
+        **Interpretasi:**  
+        - **Golden Cross**: MACD Line memotong Signal Line ke atas (sinyal beli)
+        - **Death Cross**: MACD Line memotong Signal Line ke bawah (sinyal jual)
+        - **Divergensi**: Perbedaan arah antara harga dan MACD
+        
+        **Sinyal Trading:**  
+        - **Beli**: Ketika MACD Line memotong Signal Line ke atas (terutama di area oversold)
+        - **Jual**: Ketika MACD Line memotong Signal Line ke bawah (terutama di area overbought)
+        - **Momentum**: Histogram positif mengindikasikan momentum naik
+        
+        **Kelebihan:**  
+        - Menggabungkan momentum dan arah trend
+        - Memberikan sinyal yang jelas
+        
+        **Kekurangan:**  
+        - Lagging indicator
+        - Rentan whipsaw di pasar sideways
+        """)
+        
+        st.subheader("Bollinger Bands")
+        st.write("""
+        **Rumus:**  
+        Middle Band = SMA(20)  
+        Upper Band = SMA(20) + 2 × Std Dev(20)  
+        Lower Band = SMA(20) - 2 × Std Dev(20)  
+        
+        **Interpretasi:**  
+        - **Squeeze**: Bands menyempit, mengindikasikan volatilitas rendah (potensi breakout)
+        - **Expansion**: Bands melebar, mengindikasikan volatilitas tinggi
+        - **Harga menyentuh Upper Band**: Overbought
+        - **Harga menyentuh Lower Band**: Oversold
+        
+        **Sinyal Trading:**  
+        - **Beli**: Ketika harga menyentuh lower band dan mulai naik
+        - **Jual**: Ketika harga menyentuh upper band dan mulai turun
+        - **Breakout**: Ketika harga menembus upper/lower band dengan volume tinggi
+        
+        **Kelebihan:**  
+        - Menunjukkan tingkat volatilitas
+        - Menentukan level support/resistance dinamis
+        
+        **Kekurangan:**  
+        - Tidak bekerja baik di pasar trending kuat
+        - Sering memberikan sinyal palsu di pasar sideways
+        """)
+
     
     st.markdown("---")
     st.info("⚠️ **Peringatan Analisis**: Rasio keuangan hanyalah salah satu alat analisis. "
