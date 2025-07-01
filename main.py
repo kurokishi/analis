@@ -2413,13 +2413,13 @@ with tab5:
         """)
         
     with tab6:
-    st.header("📊 Analisis Teknikal Saham")
-    st.write("""
-    Analisis pergerakan harga saham menggunakan indikator teknikal:
-    - **RSI (Relative Strength Index)**: Mengukur momentum dan kondisi overbought/oversold
-    - **MACD (Moving Average Convergence Divergence)**: Mengidentifikasi perubahan momentum
-    - **Bollinger Bands**: Mengukur volatilitas dan tingkat harga relatif
-    """)
+         st.header("📊 Analisis Teknikal Saham")
+         st.write("""
+         Analisis pergerakan harga saham menggunakan indikator teknikal:
+         - **RSI (Relative Strength Index)**: Mengukur momentum dan kondisi overbought/oversold
+         - **MACD (Moving Average Convergence Divergence)**: Mengidentifikasi perubahan momentum
+         - **Bollinger Bands**: Mengukur volatilitas dan tingkat harga relatif
+         """)
     
     # Pilih indeks saham
     col1, col2 = st.columns(2)
