@@ -931,10 +931,11 @@ def show_prediction_results(ticker, model_type, months):
 # TAMPILAN STREAMLIT
 # ========================================================
 
-st.title("📈 Analisis Portofolio Saham & Simulasi Keuangan")
+# Tampilan Streamlit
+st.title("📈 Analisis Portofolio Saham & Valuasi")
 
 # Buat tab untuk navigasi
-tab1, tab2, tab3 = st.tabs(["Analisis Portofolio", "Simulasi Pensiun", "Prediksi Harga"])
+tab1, tab2, tab3, tab4 = st.tabs(["Analisis Portofolio", "Simulasi Pensiun", "Prediksi Harga", "Valuasi Saham"])
 
 with tab1:
     # Input modal dan indeks di sidebar
@@ -1339,13 +1340,88 @@ with tab2:
                 })
             )
 
-# Tampilan Streamlit
-st.title("📈 Analisis Portofolio Saham & Valuasi")
 
-# Buat tab untuk navigasi
-tab1, tab2, tab3, tab4 = st.tabs(["Analisis Portofolio", "Simulasi Pensiun", "Prediksi Harga", "Valuasi Saham"])
-
-# ... (kode untuk tab1, tab2, dan tab3 tetap sama) ...
+# ========================================================
+# TAB BARU: PREDIKSI HARGA SAHAM
+# ========================================================
+with tab3:
+    st.header("🔮 Prediksi Harga Saham Jangka Menengah")
+    st.write("""
+    Prediksi harga saham untuk 1-6 bulan ke depan menggunakan model:
+    - **LSTM**: Long Short-Term Memory (model deep learning khusus data time series)
+    - **Prophet**: Model forecasting time series dari Facebook
+    
+    Catatan:
+    - Prediksi bersifat indikatif dan tidak menjamin akurasi mutlak
+    - Hasil prediksi dapat berbeda-beda tergantung kondisi pasar
+    - Gunakan sebagai salah satu referensi pengambilan keputusan
+    """)
+    
+    # Pilihan saham dan parameter
+    col1, col2 = st.columns(2)
+    with col1:
+        # Pilih indeks saham
+        index_selection = st.selectbox("Pilih Indeks Saham", ["Kompas100", "LQ45"])
+        
+        # Pilih saham berdasarkan indeks
+        stocks = KOMPAS100 if index_selection == "Kompas100" else LQ45
+        selected_stock = st.selectbox("Pilih Saham", stocks)
+        
+    with col2:
+        # Pilih model prediksi
+        model_type = st.selectbox("Pilih Model Prediksi", ["LSTM", "Prophet"])
+        
+        # Pilih periode prediksi
+        months = st.slider("Periode Prediksi (Bulan)", 1, 6, 3)
+    
+    # Tombol prediksi
+    predict_button = st.button("Mulai Prediksi")
+    
+    if predict_button and selected_stock:
+        ticker = f"{selected_stock}.JK"
+        show_prediction_results(ticker, model_type, months)
+    
+    # Informasi tambahan
+    st.markdown("---")
+    with st.expander("Penjelasan Model Prediksi"):
+        st.subheader("LSTM (Long Short-Term Memory)")
+        st.write("""
+        LSTM adalah jenis jaringan saraf berulang (RNN) yang dirancang khusus untuk memproses data sekuensial dan deret waktu. 
+        Keunggulan LSTM:
+        - Mampu mempelajari ketergantungan jangka panjang dalam data
+        - Menangani pola non-linear dengan baik
+        - Tahan terhadap masalah vanishing gradient
+        
+        Dalam aplikasi ini:
+        - Model dilatih menggunakan data 2 tahun terakhir
+        - Menggunakan arsitektur 2 lapisan LSTM dengan dropout
+        - Melakukan prediksi per hari untuk 1-6 bulan ke depan
+        """)
+        
+        st.subheader("Prophet")
+        st.write("""
+        Prophet adalah model forecasting time series yang dikembangkan oleh Facebook. Model ini dirancang untuk:
+        - Menangani pola musiman (harian, mingguan, tahunan)
+        - Memperhitungkan hari libur dan event khusus
+        - Robust terhadap missing data dan outliers
+        
+        Dalam aplikasi ini:
+        - Model dilatih menggunakan data 5 tahun terakhir
+        - Menambahkan komponen musiman bulanan
+        - Menghasilkan prediksi beserta interval keyakinan
+        """)
+        
+        st.subheader("Perbandingan Kedua Model")
+        st.write("""
+        | Fitur                | LSTM                          | Prophet                       |
+        |----------------------|-------------------------------|-------------------------------|
+        | Akurasi jangka pendek | Sangat baik                  | Baik                          |
+        | Akurasi jangka panjang | Baik                         | Sangat baik                   |
+        | Kecepatan pelatihan   | Lambat (perlu GPU)           | Cepat                         |
+        | Interpretabilitas     | Rendah (black box)           | Tinggi                        |
+        | Penanganan musiman    | Terbatas                     | Sangat baik                   |
+        | Data minimal          | ≥100 hari                    | ≥100 hari                     |
+        """)
 
 with tab4:
     st.header("💰 Valuasi Harga Wajar Saham")
@@ -1598,87 +1674,6 @@ with tab4:
     st.markdown("---")
     st.info("⚠️ **Peringatan Investasi**: Valuasi saham merupakan perkiraan berdasarkan asumsi dan data historis. "
             "Hasil valuasi tidak menjamin kinerja saham di masa depan. Selalu lakukan riset lebih lanjut sebelum berinvestasi.")
-# ========================================================
-# TAB BARU: PREDIKSI HARGA SAHAM
-# ========================================================
-with tab3:
-    st.header("🔮 Prediksi Harga Saham Jangka Menengah")
-    st.write("""
-    Prediksi harga saham untuk 1-6 bulan ke depan menggunakan model:
-    - **LSTM**: Long Short-Term Memory (model deep learning khusus data time series)
-    - **Prophet**: Model forecasting time series dari Facebook
-    
-    Catatan:
-    - Prediksi bersifat indikatif dan tidak menjamin akurasi mutlak
-    - Hasil prediksi dapat berbeda-beda tergantung kondisi pasar
-    - Gunakan sebagai salah satu referensi pengambilan keputusan
-    """)
-    
-    # Pilihan saham dan parameter
-    col1, col2 = st.columns(2)
-    with col1:
-        # Pilih indeks saham
-        index_selection = st.selectbox("Pilih Indeks Saham", ["Kompas100", "LQ45"])
-        
-        # Pilih saham berdasarkan indeks
-        stocks = KOMPAS100 if index_selection == "Kompas100" else LQ45
-        selected_stock = st.selectbox("Pilih Saham", stocks)
-        
-    with col2:
-        # Pilih model prediksi
-        model_type = st.selectbox("Pilih Model Prediksi", ["LSTM", "Prophet"])
-        
-        # Pilih periode prediksi
-        months = st.slider("Periode Prediksi (Bulan)", 1, 6, 3)
-    
-    # Tombol prediksi
-    predict_button = st.button("Mulai Prediksi")
-    
-    if predict_button and selected_stock:
-        ticker = f"{selected_stock}.JK"
-        show_prediction_results(ticker, model_type, months)
-    
-    # Informasi tambahan
-    st.markdown("---")
-    with st.expander("Penjelasan Model Prediksi"):
-        st.subheader("LSTM (Long Short-Term Memory)")
-        st.write("""
-        LSTM adalah jenis jaringan saraf berulang (RNN) yang dirancang khusus untuk memproses data sekuensial dan deret waktu. 
-        Keunggulan LSTM:
-        - Mampu mempelajari ketergantungan jangka panjang dalam data
-        - Menangani pola non-linear dengan baik
-        - Tahan terhadap masalah vanishing gradient
-        
-        Dalam aplikasi ini:
-        - Model dilatih menggunakan data 2 tahun terakhir
-        - Menggunakan arsitektur 2 lapisan LSTM dengan dropout
-        - Melakukan prediksi per hari untuk 1-6 bulan ke depan
-        """)
-        
-        st.subheader("Prophet")
-        st.write("""
-        Prophet adalah model forecasting time series yang dikembangkan oleh Facebook. Model ini dirancang untuk:
-        - Menangani pola musiman (harian, mingguan, tahunan)
-        - Memperhitungkan hari libur dan event khusus
-        - Robust terhadap missing data dan outliers
-        
-        Dalam aplikasi ini:
-        - Model dilatih menggunakan data 5 tahun terakhir
-        - Menambahkan komponen musiman bulanan
-        - Menghasilkan prediksi beserta interval keyakinan
-        """)
-        
-        st.subheader("Perbandingan Kedua Model")
-        st.write("""
-        | Fitur                | LSTM                          | Prophet                       |
-        |----------------------|-------------------------------|-------------------------------|
-        | Akurasi jangka pendek | Sangat baik                  | Baik                          |
-        | Akurasi jangka panjang | Baik                         | Sangat baik                   |
-        | Kecepatan pelatihan   | Lambat (perlu GPU)           | Cepat                         |
-        | Interpretabilitas     | Rendah (black box)           | Tinggi                        |
-        | Penanganan musiman    | Terbatas                     | Sangat baik                   |
-        | Data minimal          | ≥100 hari                    | ≥100 hari                     |
-        """)
     
     st.markdown("---")
     st.info("🚨 **Peringatan Investasi**: Prediksi harga saham bersifat spekulatif dan tidak dapat dijadikan satu-satunya acuan pengambilan keputusan investasi. Selalu lakukan analisis fundamental dan pertimbangkan risiko investasi.")
