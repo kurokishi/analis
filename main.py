@@ -549,6 +549,219 @@ def predict_with_lstm(ticker, months=6):
         print(f"Error in LSTM prediction: {str(e)}")
         return None, None, f"Error: {str(e)}"
 
+# ========================================================
+# FUNGSI BARU: VALUASI SAHAM
+# ========================================================
+
+def get_financial_data(ticker):
+    """Mendapatkan data fundamental saham dari Yahoo Finance"""
+    try:
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        
+        # Data yang diperlukan
+        current_price = info.get('currentPrice', info.get('regularMarketPrice', np.nan))
+        book_value = info.get('bookValue', np.nan)
+        eps = info.get('trailingEps', info.get('epsTrailingTwelveMonths', np.nan))
+        pe_ratio = info.get('trailingPE', np.nan)
+        pb_ratio = info.get('priceToBook', np.nan)
+        dividend_yield = info.get('dividendYield', np.nan) * 100 if info.get('dividendYield') else np.nan
+        beta = info.get('beta', np.nan)
+        roe = info.get('returnOnEquity', np.nan) * 100 if info.get('returnOnEquity') else np.nan
+        
+        # Dapatkan data dividen
+        dividends = stock.dividends
+        if not dividends.empty:
+            last_dividend = dividends.iloc[-1]
+        else:
+            last_dividend = np.nan
+        
+        return {
+            'current_price': current_price,
+            'book_value': book_value,
+            'eps': eps,
+            'pe_ratio': pe_ratio,
+            'pb_ratio': pb_ratio,
+            'dividend_yield': dividend_yield,
+            'last_dividend': last_dividend,
+            'beta': beta,
+            'roe': roe
+        }
+    except Exception as e:
+        st.error(f"Error mendapatkan data fundamental untuk {ticker}: {str(e)}")
+        return {}
+
+def pbv_valuation(book_value, industry_pb, safety_margin=0.15):
+    """Valuasi menggunakan Price to Book Value (PBV)"""
+    if np.isnan(book_value) or np.isnan(industry_pb):
+        return np.nan, "Data tidak lengkap"
+    
+    fair_value = book_value * industry_pb
+    target_buy_price = fair_value * (1 - safety_margin)
+    
+    return fair_value, target_buy_price
+
+def per_valuation(eps, industry_pe, growth_rate=0.1, safety_margin=0.15):
+    """Valuasi menggunakan Price to Earnings Ratio (PER)"""
+    if np.isnan(eps) or np.isnan(industry_pe):
+        return np.nan, "Data tidak lengkap"
+    
+    # Hitung PER wajar dengan mempertimbangkan growth rate
+    fair_pe = industry_pe * (1 + growth_rate)
+    fair_value = eps * fair_pe
+    target_buy_price = fair_value * (1 - safety_margin)
+    
+    return fair_value, target_buy_price
+
+def dcf_valuation(eps, growth_rate_5y, terminal_growth_rate, discount_rate, safety_margin=0.15):
+    """Valuasi menggunakan Discounted Cash Flow (DCF)"""
+    if np.isnan(eps) or np.isnan(growth_rate_5y) or np.isnan(terminal_growth_rate) or np.isnan(discount_rate):
+        return np.nan, "Data tidak lengkap"
+    
+    # Hitung arus kas bebas (FCFF) - disederhanakan dari EPS
+    fcff = eps
+    
+    # Proyeksi 5 tahun dengan pertumbuhan tinggi
+    cash_flows = []
+    for year in range(1, 6):
+        fcff *= (1 + growth_rate_5y)
+        discounted_fcff = fcff / ((1 + discount_rate) ** year)
+        cash_flows.append(discounted_fcff)
+    
+    # Terminal value
+    terminal_value = (fcff * (1 + terminal_growth_rate)) / (discount_rate - terminal_growth_rate)
+    discounted_terminal_value = terminal_value / ((1 + discount_rate) ** 5)
+    
+    # Total nilai perusahaan
+    enterprise_value = sum(cash_flows) + discounted_terminal_value
+    
+    # Asumsikan nilai ekuitas sama dengan enterprise value
+    fair_value = enterprise_value
+    target_buy_price = fair_value * (1 - safety_margin)
+    
+    return fair_value, target_buy_price
+
+def graham_valuation(eps, book_value_per_share, growth_rate_7y=0.15, bond_yield=0.07):
+    """Valuasi menggunakan formula Benjamin Graham"""
+    if np.isnan(eps) or np.isnan(book_value_per_share):
+        return np.nan, "Data tidak lengkap"
+    
+    # Hitung PER wajar berdasarkan formula Graham
+    fair_pe = (8.5 + 2 * growth_rate_7y) * (bond_yield / 0.04)
+    fair_value = eps * fair_pe
+    
+    # Pastikan valuasi minimal 1.5x book value
+    min_value = 1.5 * book_value_per_share
+    if fair_value < min_value:
+        fair_value = min_value
+    
+    # Margin of safety 25%
+    target_buy_price = fair_value * 0.75
+    
+    return fair_value, target_buy_price
+
+def display_valuation_results(ticker, valuation_data):
+    """Menampilkan hasil valuasi dalam format tabel"""
+    st.subheader(f"Hasil Valuasi untuk {ticker}")
+    
+    # Buat DataFrame untuk hasil valuasi
+    methods = []
+    fair_values = []
+    buy_prices = []
+    current_prices = []
+    margins = []
+    
+    current_price = valuation_data['current_price']
+    
+    for method, (fair_value, buy_price) in valuation_data['results'].items():
+        if not np.isnan(fair_value):
+            methods.append(method)
+            fair_values.append(fair_value)
+            buy_prices.append(buy_price)
+            current_prices.append(current_price)
+            
+            # Hitung margin of safety
+            if current_price > 0:
+                margin = ((fair_value - current_price) / current_price) * 100
+            else:
+                margin = np.nan
+            margins.append(margin)
+    
+    df = pd.DataFrame({
+        'Metode': methods,
+        'Harga Wajar (Rp)': fair_values,
+        'Harga Beli Target (Rp)': buy_prices,
+        'Harga Sekarang (Rp)': current_prices,
+        'Margin of Safety (%)': margins
+    })
+    
+    # Tampilkan tabel
+    st.dataframe(
+        df.style.format({
+            'Harga Wajar (Rp)': 'Rp {:,.0f}',
+            'Harga Beli Target (Rp)': 'Rp {:,.0f}',
+            'Harga Sekarang (Rp)': 'Rp {:,.0f}',
+            'Margin of Safety (%)': '{:.2f}%'
+        }),
+        height=300
+    )
+    
+    # Tampilkan rekomendasi
+    avg_fair_value = np.nanmean(fair_values)
+    if not np.isnan(avg_fair_value) and not np.isnan(current_price):
+        if current_price < avg_fair_value * 0.8:
+            st.success("**REKOMENDASI: BELI** - Harga saat ini di bawah nilai wajar dengan margin keamanan yang baik")
+        elif current_price < avg_fair_value:
+            st.warning("**REKOMENDASI: TAHAN** - Harga saat ini mendekati nilai wajar")
+        else:
+            st.error("**REKOMENDASI: JUAL** - Harga saat ini di atas nilai wajar")
+        
+        st.metric("Rata-rata Harga Wajar", f"Rp {avg_fair_value:,.0f}", 
+                 f"{(avg_fair_value - current_price)/current_price*100:.2f}%")
+    
+    # Grafik perbandingan valuasi
+    if len(methods) > 0:
+        fig = go.Figure()
+        
+        # Tambahkan garis harga wajar
+        fig.add_trace(go.Bar(
+            x=methods,
+            y=fair_values,
+            name='Harga Wajar',
+            marker_color='#2ca02c'
+        ))
+        
+        # Tambahkan garis harga beli target
+        fig.add_trace(go.Bar(
+            x=methods,
+            y=buy_prices,
+            name='Harga Beli Target',
+            marker_color='#ff7f0e'
+        ))
+        
+        # Tambahkan garis harga sekarang
+        fig.add_trace(go.Scatter(
+            x=methods,
+            y=current_prices * len(methods),
+            mode='lines',
+            name='Harga Sekarang',
+            line=dict(color='#d62728', width=3, dash='dash'),
+            hovertemplate='Harga Sekarang: Rp %{y:,.0f}<extra></extra>'
+        ))
+        
+        # Konfigurasi layout
+        fig.update_layout(
+            title='Perbandingan Valuasi Saham',
+            xaxis_title='Metode Valuasi',
+            yaxis_title='Harga (Rp)',
+            template='plotly_white',
+            hovermode='x unified',
+            height=500,
+            barmode='group'
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+
 # Fungsi untuk prediksi menggunakan Prophet
 def predict_with_prophet(ticker, months=6):
     try:
@@ -1126,6 +1339,265 @@ with tab2:
                 })
             )
 
+# Tampilan Streamlit
+st.title("📈 Analisis Portofolio Saham & Valuasi")
+
+# Buat tab untuk navigasi
+tab1, tab2, tab3, tab4 = st.tabs(["Analisis Portofolio", "Simulasi Pensiun", "Prediksi Harga", "Valuasi Saham"])
+
+# ... (kode untuk tab1, tab2, dan tab3 tetap sama) ...
+
+with tab4:
+    st.header("💰 Valuasi Harga Wajar Saham")
+    st.write("""
+    Hitung harga wajar saham menggunakan berbagai metode valuasi:
+    - **PBV (Price to Book Value)**: Valuasi berdasarkan nilai buku perusahaan
+    - **PER (Price to Earnings Ratio)**: Valuasi berdasarkan kemampuan perusahaan menghasilkan laba
+    - **DCF (Discounted Cash Flow)**: Valuasi berdasarkan arus kas masa depan yang didiskontokan
+    - **Graham Formula**: Metode klasik dari Benjamin Graham (Bapak Value Investing)
+    """)
+    
+    # Pilih indeks saham
+    col1, col2 = st.columns(2)
+    with col1:
+        index_selection = st.selectbox("Pilih Indeks Saham", ["Kompas100", "LQ45"], key="valuation_index")
+        
+        # Pilih saham berdasarkan indeks
+        stocks = KOMPAS100 if index_selection == "Kompas100" else LQ45
+        selected_stock = st.selectbox("Pilih Saham", stocks, key="valuation_stock")
+    
+    with col2:
+        st.write("### Parameter Umum")
+        safety_margin = st.slider("Margin of Safety (%)", 0, 30, 15, key="safety_margin") / 100
+        industry_pb = st.number_input("Rata-rata PBV Industri", min_value=0.0, value=2.5, step=0.1, key="industry_pb")
+        industry_pe = st.number_input("Rata-rata PER Industri", min_value=0.0, value=15.0, step=0.5, key="industry_pe")
+    
+    # Dapatkan data fundamental
+    ticker = f"{selected_stock}.JK"
+    financial_data = get_financial_data(ticker)
+    
+    if financial_data:
+        st.subheader(f"Data Fundamental {selected_stock}")
+        col1, col2, col3 = st.columns(3)
+        
+        col1.metric("Harga Sekarang", f"Rp {financial_data['current_price']:,.0f}" if not np.isnan(financial_data['current_price']) else "N/A")
+        col1.metric("Nilai Buku per Saham", f"Rp {financial_data['book_value']:,.0f}" if not np.isnan(financial_data['book_value']) else "N/A")
+        
+        col2.metric("EPS (Laba per Saham)", f"Rp {financial_data['eps']:,.0f}" if not np.isnan(financial_data['eps']) else "N/A")
+        col2.metric("Dividen per Saham", f"Rp {financial_data['last_dividend']:,.0f}" if not np.isnan(financial_data['last_dividend']) else "N/A")
+        
+        col3.metric("ROE (%)", f"{financial_data['roe']:.2f}%" if not np.isnan(financial_data['roe']) else "N/A")
+        col3.metric("Beta", f"{financial_data['beta']:.2f}" if not np.isnan(financial_data['beta']) else "N/A")
+    
+    # Form input untuk setiap metode valuasi
+    st.markdown("---")
+    st.subheader("Parameter Valuasi")
+    
+    with st.expander("Metode PBV (Price to Book Value)", expanded=True):
+        st.info("""
+        **Rumus:**  
+        Harga Wajar = Nilai Buku per Saham × PBV Industri  
+        Harga Beli Target = Harga Wajar × (1 - Margin of Safety)
+        """)
+        
+        st.write("Gunakan parameter yang sudah ditentukan di atas")
+    
+    with st.expander("Metode PER (Price to Earnings Ratio)", expanded=True):
+        st.info("""
+        **Rumus:**  
+        PER Wajar = PER Industri × (1 + Tingkat Pertumbuhan)  
+        Harga Wajar = EPS × PER Wajar  
+        Harga Beli Target = Harga Wajar × (1 - Margin of Safety)
+        """)
+        
+        growth_rate_per = st.slider("Tingkat Pertumbuhan Laba (%)", 0.0, 30.0, 10.0, step=0.5, key="growth_per") / 100
+    
+    with st.expander("Metode DCF (Discounted Cash Flow)", expanded=True):
+        st.info("""
+        **Rumus:**  
+        1. Proyeksikan arus kas 5 tahun ke depan dengan tingkat pertumbuhan  
+        2. Hitung nilai terminal setelah 5 tahun  
+        3. Diskontokan semua arus kas ke nilai sekarang  
+        4. Harga Wajar = Total nilai sekarang  
+        5. Harga Beli Target = Harga Wajar × (1 - Margin of Safety)
+        """)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            growth_rate_5y = st.slider("Tingkat Pertumbuhan 5 Tahun (%)", 0.0, 30.0, 12.0, step=0.5, key="growth_5y") / 100
+            terminal_growth = st.slider("Tingkat Pertumbuhan Terminal (%)", 0.0, 10.0, 3.0, step=0.1, key="terminal_growth") / 100
+        with col2:
+            risk_free_rate = st.slider("Risk-Free Rate (%)", 0.0, 10.0, 6.5, step=0.1, key="risk_free") / 100
+            market_risk_premium = st.slider("Market Risk Premium (%)", 0.0, 15.0, 5.5, step=0.1, key="risk_premium") / 100
+        
+        # Hitung discount rate dengan CAPM
+        if not np.isnan(financial_data.get('beta', np.nan)):
+            beta = financial_data['beta']
+            discount_rate = risk_free_rate + beta * market_risk_premium
+            st.write(f"**Discount Rate (CAPM):** {discount_rate*100:.2f}% = {risk_free_rate*100:.2f}% + {beta:.2f} × {market_risk_premium*100:.2f}%")
+        else:
+            discount_rate = st.slider("Discount Rate (%)", 0.0, 30.0, 10.0, step=0.5, key="discount_rate") / 100
+    
+    with st.expander("Metode Graham Formula", expanded=True):
+        st.info("""
+        **Rumus Benjamin Graham:**  
+        Harga Wajar = EPS × (8.5 + 2 × Tingkat Pertumbuhan 7 Tahun) × (4.4 / Yield Obligasi AAA)  
+        Harga Beli Target = Harga Wajar × 0.75 (Margin of Safety 25%)
+        """)
+        
+        growth_rate_7y = st.slider("Tingkat Pertumbuhan 7 Tahun (%)", 0.0, 30.0, 10.0, step=0.5, key="growth_7y") / 100
+        bond_yield = st.slider("Yield Obligasi AAA (%)", 0.0, 15.0, 7.0, step=0.1, key="bond_yield") / 100
+    
+    # Tombol hitung valuasi
+    if st.button("Hitung Valuasi", key="calculate_valuation"):
+        if financial_data:
+            valuation_results = {}
+            
+            # PBV Valuation
+            if not np.isnan(financial_data['book_value']):
+                fair_value, buy_price = pbv_valuation(
+                    financial_data['book_value'], 
+                    industry_pb, 
+                    safety_margin
+                )
+                valuation_results['PBV'] = (fair_value, buy_price)
+            
+            # PER Valuation
+            if not np.isnan(financial_data['eps']):
+                fair_value, buy_price = per_valuation(
+                    financial_data['eps'], 
+                    industry_pe, 
+                    growth_rate_per,
+                    safety_margin
+                )
+                valuation_results['PER'] = (fair_value, buy_price)
+            
+            # DCF Valuation
+            if not np.isnan(financial_data['eps']):
+                fair_value, buy_price = dcf_valuation(
+                    financial_data['eps'], 
+                    growth_rate_5y,
+                    terminal_growth,
+                    discount_rate,
+                    safety_margin
+                )
+                valuation_results['DCF'] = (fair_value, buy_price)
+            
+            # Graham Valuation
+            if not np.isnan(financial_data['eps']) and not np.isnan(financial_data['book_value']):
+                fair_value, buy_price = graham_valuation(
+                    financial_data['eps'], 
+                    financial_data['book_value'],
+                    growth_rate_7y,
+                    bond_yield
+                )
+                valuation_results['Graham'] = (fair_value, buy_price)
+            
+            # Tampilkan hasil
+            if valuation_results:
+                valuation_data = {
+                    'current_price': financial_data['current_price'],
+                    'results': valuation_results
+                }
+                display_valuation_results(ticker, valuation_data)
+            else:
+                st.error("Tidak ada metode valuasi yang dapat dihitung karena data tidak lengkap")
+        else:
+            st.error("Tidak dapat melakukan valuasi karena data fundamental tidak tersedia")
+    
+    # Penjelasan metode valuasi
+    st.markdown("---")
+    with st.expander("📚 Penjelasan Metode Valuasi"):
+        st.subheader("PBV (Price to Book Value)")
+        st.write("""
+        **Konsep:**  
+        Metode PBV membandingkan harga pasar saham dengan nilai buku perusahaan. 
+        Nilai buku dihitung dari total aset dikurangi total kewajiban, kemudian dibagi jumlah saham.
+        
+        **Cara Interpretasi:**
+        - PBV < 1: Saham dinilai di bawah nilai bukunya (potensi undervalued)
+        - PBV 1-2: Saham dinilai wajar
+        - PBV > 2: Saham dinilai di atas nilai bukunya (potensi overvalued)
+        
+        **Kelebihan:**
+        - Berguna untuk perusahaan dengan aset berwujud besar (perbankan, properti)
+        - Lebih stabil dibanding metode berbasis laba
+        
+        **Kekurangan:**
+        - Kurang relevan untuk perusahaan berbasis intelektual (teknologi)
+        - Tidak memperhitungkan potensi pertumbuhan
+        """)
+        
+        st.subheader("PER (Price to Earnings Ratio)")
+        st.write("""
+        **Konsep:**  
+        Metode PER membandingkan harga saham dengan laba per saham (EPS). 
+        Rasio ini menunjukkan berapa banyak investor bersedia membayar untuk setiap rupiah laba perusahaan.
+        
+        **Cara Interpretasi:**
+        - PER < industri: Potensi undervalued
+        - PER ≈ industri: Nilai wajar
+        - PER > industri: Potensi overvalued
+        
+        **Kelebihan:**
+        - Mudah dihitung dan dipahami
+        - Memperhitungkan profitabilitas perusahaan
+        
+        **Kekurangan:**
+        - Sensitif terhadap manipulasi akuntansi
+        - Tidak berguna untuk perusahaan yang belum profit
+        """)
+        
+        st.subheader("DCF (Discounted Cash Flow)")
+        st.write("""
+        **Konsep:**  
+        Metode DCF menghitung nilai intrinsik saham dengan mendiskontokan arus kas masa depan ke nilai sekarang. 
+        Metode ini terdiri dari dua bagian utama:
+        1. Proyeksi arus kas bebas selama 5-10 tahun
+        2. Perhitungan nilai terminal setelah periode proyeksi
+        
+        **Cara Interpretasi:**
+        - Nilai intrinsik > harga pasar: Potensi undervalued
+        - Nilai intrinsik < harga pasar: Potensi overvalued
+        
+        **Kelebihan:**
+        - Mempertimbangkan nilai waktu uang
+        - Fokus pada arus kas (lebih sulit dimanipulasi)
+        
+        **Kekurangan:**
+        - Sangat bergantung pada asumsi pertumbuhan dan diskonto
+        - Kompleks dan banyak variabel
+        """)
+        
+        st.subheader("Graham Formula (Benjamin Graham)")
+        st.write("""
+        **Konsep:**  
+        Dikembangkan oleh Benjamin Graham (guru Warren Buffett), formula ini dirancang untuk investor nilai. 
+        Formula dasar Graham:
+        ```
+        Harga Wajar = EPS × (8.5 + 2g) × (4.4 / AAA Bond Yield)
+        ```
+        Dimana:
+        - EPS: Laba per saham
+        - g: Tingkat pertumbuhan laba 7-10 tahun
+        - AAA Bond Yield: Yield obligasi pemerintah AAA
+        
+        **Cara Interpretasi:**
+        - Harga pasar < 80% nilai wajar: Potensi beli
+        - Harga pasar > 120% nilai wajar: Potensi jual
+        
+        **Kelebihan:**
+        - Sederhana dan mudah dihitung
+        - Memasukkan faktor pertumbuhan dan suku bunga
+        
+        **Kekurangan:**
+        - Dirancang untuk pasar yang berbeda era Graham
+        - Kurang akurat untuk perusahaan pertumbuhan tinggi
+        """)
+    
+    st.markdown("---")
+    st.info("⚠️ **Peringatan Investasi**: Valuasi saham merupakan perkiraan berdasarkan asumsi dan data historis. "
+            "Hasil valuasi tidak menjamin kinerja saham di masa depan. Selalu lakukan riset lebih lanjut sebelum berinvestasi.")
 # ========================================================
 # TAB BARU: PREDIKSI HARGA SAHAM
 # ========================================================
