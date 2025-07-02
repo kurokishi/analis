@@ -1018,7 +1018,7 @@ def get_financial_ratios(ticker):
                 historical_ratios['EPS'] = eps_hist
                 
         # Historis Revenue Growth
-       if not financials.empty:
+        if not financials.empty:
             revenue_hist = financials.loc['Total Revenue'] if 'Total Revenue' in financials.index else None
             if revenue_hist is not None:
                 # PERBAIKAN: Tambahkan astype(float)
