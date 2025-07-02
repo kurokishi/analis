@@ -8,10 +8,6 @@ from datetime import datetime, timedelta
 import requests
 from bs4 import BeautifulSoup
 import time
-from sklearn.preprocessing import MinMaxScaler
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense, Dropout
-from prophet import Prophet
 import logging
 
 # Konfigurasi awal
@@ -67,7 +63,8 @@ def load_data(uploaded_file):
 def get_stock_data(ticker, period="1y"):
     try:
         stock = yf.Ticker(ticker)
-        hist = stock.history(period=period)
+        # PERBAIKAN: Tambahkan auto_adjust=False
+        hist = stock.history(period=period, auto_adjust=False)
         return hist
     except Exception as e:
         print(f"Error fetching data for {ticker}: {str(e)}")
@@ -1021,10 +1018,11 @@ def get_financial_ratios(ticker):
                 historical_ratios['EPS'] = eps_hist
                 
         # Historis Revenue Growth
-        if not financials.empty:
+       if not financials.empty:
             revenue_hist = financials.loc['Total Revenue'] if 'Total Revenue' in financials.index else None
             if revenue_hist is not None:
-                revenue_growth_hist = revenue_hist.pct_change(periods=-1) * 100
+                # PERBAIKAN: Tambahkan astype(float)
+                revenue_growth_hist = revenue_hist.astype(float).pct_change(periods=-1) * 100
                 historical_ratios['Revenue Growth'] = revenue_growth_hist
         
         return {
@@ -1143,7 +1141,7 @@ def display_fundamental_analysis(ticker, financial_data):
             return ''
         
         st.dataframe(
-            ratio_df.style.applymap(color_ratios, subset=['Rasio']).format({
+            ratio_df.style.map(color_ratios, subset=['Rasio']).format({
                 'Nilai': '{:.2f}'
             }),
             height=600
@@ -2412,14 +2410,14 @@ with tab5:
         - Dapat dipengaruhi oleh akuisisi  
         """)
         
-    with tab6:
-         st.header("📊 Analisis Teknikal Saham")
-         st.write("""
-         Analisis pergerakan harga saham menggunakan indikator teknikal:
-         - **RSI (Relative Strength Index)**: Mengukur momentum dan kondisi overbought/oversold
-         - **MACD (Moving Average Convergence Divergence)**: Mengidentifikasi perubahan momentum
-         - **Bollinger Bands**: Mengukur volatilitas dan tingkat harga relatif
-         """)
+with tab6:
+    st.header("📊 Analisis Teknikal Saham")
+    st.write("""
+    Analisis pergerakan harga saham menggunakan indikator teknikal:
+    - **RSI (Relative Strength Index)**: Mengukur momentum dan kondisi overbought/oversold
+    - **MACD (Moving Average Convergence Divergence)**: Mengidentifikasi perubahan momentum
+    - **Bollinger Bands**: Mengukur volatilitas dan tingkat harga relatif
+    """)
     
     # Pilih indeks saham
     col1, col2 = st.columns(2)
@@ -2451,7 +2449,8 @@ with tab5:
     # Dapatkan data harga
     ticker = f"{selected_stock}.JK"
     try:
-        data = yf.download(ticker, period=f"{days}d")
+        # PERBAIKAN: Tambahkan auto_adjust=False
+        data = yf.download(ticker, period=f"{days}d", auto_adjust=False)
         
         if data.empty:
             st.error(f"Tidak dapat mengambil data untuk {ticker}")
