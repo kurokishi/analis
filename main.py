@@ -169,7 +169,10 @@ def get_current_price(ticker):
     try:
         stock = yf.Ticker(ticker)
         data = stock.history(period="1d")
-        return data['Close'].iloc[-1] if not data.empty else np.nan
+        if not data.empty:
+            # Ambil nilai terakhir sebagai float
+            return float(data['Close'].iloc[-1])
+        return np.nan
     except Exception as e:
         print(f"Error getting price for {ticker}: {str(e)}")
         return np.nan
@@ -384,18 +387,27 @@ def get_purchase_recommendation(current_price, support_levels, avg_price):
     if not support_levels:
         return "Data tidak cukup", "gray"
     
-    # Ambil level support terdekat
-    min_support = min(support_levels.values())
-    
-    # Analisis kondisi
-    if current_price < min_support:
-        return "Wajib Beli (di bawah support)", "green"
-    elif current_price < min_support * 1.05:  # Dalam 5% di atas support terendah
-        return "Beli Sebagian (dekat support)", "orange"
-    elif current_price < avg_price:
-        return "Beli Sebagian (di bawah rata-rata)", "orange"
-    else:
-        return "Amati Pasar (di atas support)", "red"
+    try:
+        # Konversi nilai menjadi float jika diperlukan
+        current_price = float(current_price)
+        avg_price = float(avg_price)
+        
+        # Ambil level support terdekat sebagai nilai float
+        min_support = min(support_levels.values())
+        min_support = float(min_support)
+        
+        # Analisis kondisi dengan nilai numerik
+        if current_price < min_support:
+            return "Wajib Beli (di bawah support)", "green"
+        elif current_price < min_support * 1.05:  # Dalam 5% di atas support terendah
+            return "Beli Sebagian (dekat support)", "orange"
+        elif current_price < avg_price:
+            return "Beli Sebagian (di bawah rata-rata)", "orange"
+        else:
+            return "Amati Pasar (di atas support)", "red"
+    except Exception as e:
+        print(f"Error in purchase recommendation: {str(e)}")
+        return "Error dalam analisis", "gray"
 
 # Fungsi untuk menghitung jumlah lot yang bisa dibeli (DIPERBARUI)
 def calculate_lot_purchase(df, capital, dca_df):
@@ -403,43 +415,47 @@ def calculate_lot_purchase(df, capital, dca_df):
     total_cost = 0
     
     for _, row in df.iterrows():
-        ticker = row['Ticker']
-        current_price = get_current_price(ticker)
-        
-        if not np.isnan(current_price):
-            # Hitung jumlah lot yang bisa dibeli (1 lot = 100 lembar)
-            lot_size = 100
-            price_per_lot = current_price * lot_size
-            max_lots = capital // price_per_lot
+        try:
+            ticker = row['Ticker']
+            current_price = get_current_price(ticker)
             
-            # Hitung biaya pembelian untuk semua lot yang bisa dibeli
-            cost = max_lots * price_per_lot
-            
-            # Dapatkan data support dari dca_df
-            support_levels = {}
-            dca_row = dca_df[dca_df['Ticker'] == ticker]
-            if not dca_row.empty:
-                support_levels = dca_row.iloc[0]['Support Levels']
-            
-            # Dapatkan rekomendasi pembelian
-            rec_text, rec_color = get_purchase_recommendation(
-                current_price, 
-                support_levels,
-                row['Avg Price']
-            )
-            
-            results.append({
-                'Saham': row['Stock'],
-                'Ticker': ticker,
-                'Harga Sekarang (Rp)': current_price,
-                'Harga per Lot (Rp)': price_per_lot,
-                'Jumlah Lot yang Bisa Dibeli': max_lots,
-                'Total Biaya (Rp)': cost,
-                'Rekomendasi Pembelian': rec_text,
-                'Warna': rec_color
-            })
-            
-            total_cost += cost
+            if not np.isnan(current_price):
+                # Hitung jumlah lot yang bisa dibeli (1 lot = 100 lembar)
+                lot_size = 100
+                price_per_lot = current_price * lot_size
+                max_lots = capital // price_per_lot
+                
+                # Hitung biaya pembelian untuk semua lot yang bisa dibeli
+                cost = max_lots * price_per_lot
+                
+                # Dapatkan data support dari dca_df
+                support_levels = {}
+                dca_row = dca_df[dca_df['Ticker'] == ticker]
+                if not dca_row.empty:
+                    # Ambil baris pertama yang cocok
+                    support_levels = dca_row.iloc[0].get('Support Levels', {})
+                
+                # Dapatkan rekomendasi pembelian
+                rec_text, rec_color = get_purchase_recommendation(
+                    current_price, 
+                    support_levels,
+                    row['Avg Price']
+                )
+                
+                results.append({
+                    'Saham': row['Stock'],
+                    'Ticker': ticker,
+                    'Harga Sekarang (Rp)': current_price,
+                    'Harga per Lot (Rp)': price_per_lot,
+                    'Jumlah Lot yang Bisa Dibeli': max_lots,
+                    'Total Biaya (Rp)': cost,
+                    'Rekomendasi Pembelian': rec_text,
+                    'Warna': rec_color
+                })
+                
+                total_cost += cost
+        except Exception as e:
+            print(f"Error calculating lot purchase for {row['Ticker']}: {str(e)}")
     
     # Hitung sisa modal
     remaining_capital = capital - total_cost
