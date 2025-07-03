@@ -1295,14 +1295,13 @@ def calculate_rsi(data, window=14):
     gain = (delta.where(delta > 0, 0)).fillna(0)
     loss = (-delta.where(delta < 0, 0)).fillna(0)
     
-    avg_gain = gain.rolling(window=window).mean()
-    avg_loss = loss.rolling(window=window).mean()
+    # Gunakan rata-rata eksponensial
+    avg_gain = gain.ewm(alpha=1/window, min_periods=window).mean()
+    avg_loss = loss.ewm(alpha=1/window, min_periods=window).mean()
     
-    rs = avg_gain / avg_loss
+    # Hindari pembagian dengan nol
+    rs = avg_gain / avg_loss.replace(0, np.nan).fillna(1)
     rsi = 100 - (100 / (1 + rs))
-    
-    # Isi nilai awal dengan NaN
-    rsi[:window] = np.nan
     
     return rsi
 
@@ -1329,22 +1328,30 @@ def calculate_bollinger_bands(data, window=20, num_std=2):
     
     return sma, upper_band, lower_band
 
+# Perbaikan fungsi calculate_technical_indicators
 def calculate_technical_indicators(data):
     """Menghitung semua indikator teknikal"""
-    if data.empty:
+    if data.empty or len(data) < 30:  # Minimal 30 data point
         return data
     
-    # Hitung RSI
-    data['RSI'] = calculate_rsi(data)
-    
-    # Hitung MACD
-    macd_line, signal_line, macd_hist = calculate_macd(data)
-    data['MACD'] = macd_line
-    data['MACD_Signal'] = signal_line
-    data['MACD_Hist'] = macd_hist
-    
-    # Hitung Bollinger Bands
-    data['SMA20'], data['BB_Upper'], data['BB_Lower'] = calculate_bollinger_bands(data)
+    try:
+        # Hitung RSI
+        data['RSI'] = calculate_rsi(data)
+        
+        # Hitung MACD
+        macd_line, signal_line, macd_hist = calculate_macd(data)
+        data['MACD'] = macd_line
+        data['MACD_Signal'] = signal_line
+        data['MACD_Hist'] = macd_hist
+        
+        # Hitung Bollinger Bands
+        sma, upper_band, lower_band = calculate_bollinger_bands(data)
+        data['SMA20'] = sma
+        data['BB_Upper'] = upper_band
+        data['BB_Lower'] = lower_band
+        
+    except Exception as e:
+        st.error(f"Error menghitung indikator teknikal: {str(e)}")
     
     return data
 
