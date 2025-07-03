@@ -74,10 +74,15 @@ def get_stock_data(ticker, period="1y"):
 def calculate_support_levels(data):
     support_levels = {}
     
-    if not data.empty:
-        closes = data['Close']
+    if data.empty:
+        return support_levels
+    
+    try:
+        closes = data['Close'].dropna()
+        if len(closes) == 0:
+            return support_levels
         
-        # Menghitung moving averages dengan pandas
+        # Menghitung moving averages
         if len(closes) >= 50:
             support_levels['MA50'] = closes.rolling(window=50).mean().iloc[-1]
         if len(closes) >= 100:
@@ -86,14 +91,18 @@ def calculate_support_levels(data):
             support_levels['MA200'] = closes.rolling(window=200).mean().iloc[-1]
         
         # Menghitung Fibonacci retracement levels
-        high = data['High'].max()
-        low = data['Low'].min()
-        diff = high - low
+        highs = data['High'].dropna()
+        lows = data['Low'].dropna()
         
-        support_levels['Fib_23.6%'] = high - diff * 0.236
-        support_levels['Fib_38.2%'] = high - diff * 0.382
-        support_levels['Fib_50%'] = high - diff * 0.5
-        support_levels['Fib_61.8%'] = high - diff * 0.618
+        if len(highs) > 0 and len(lows) > 0:
+            high = highs.max()
+            low = lows.min()
+            diff = high - low
+            
+            support_levels['Fib_23.6%'] = high - diff * 0.236
+            support_levels['Fib_38.2%'] = high - diff * 0.382
+            support_levels['Fib_50%'] = high - diff * 0.5
+            support_levels['Fib_61.8%'] = high - diff * 0.618
         
         # Menghitung pivot points
         latest = data.iloc[-1]
@@ -103,9 +112,15 @@ def calculate_support_levels(data):
         support_levels['Pivot_S3'] = latest['Low'] - 2 * (latest['High'] - pivot)
         
         # Menambahkan harga terendah
-        support_levels['1m_Low'] = data['Low'].tail(20).min()
-        support_levels['3m_Low'] = data['Low'].tail(60).min()
-        support_levels['52w_Low'] = data['Low'].min()
+        if len(data) >= 20:
+            support_levels['1m_Low'] = data['Low'].tail(20).min()
+        if len(data) >= 60:
+            support_levels['3m_Low'] = data['Low'].tail(60).min()
+        if len(data) > 0:
+            support_levels['52w_Low'] = data['Low'].min()
+    
+    except Exception as e:
+        print(f"Error calculating support levels: {str(e)}")
     
     # Hapus nilai NaN
     return {k: v for k, v in support_levels.items() if not pd.isna(v)}
@@ -114,33 +129,38 @@ def calculate_support_levels(data):
 def dca_analysis(df):
     results = []
     for _, row in df.iterrows():
-        ticker = row['Ticker']
-        avg_price = row['Avg Price']
-        current_price = get_current_price(ticker)
-        
-        if not np.isnan(current_price):
-            # Simulasi DCA
-            dca_values = []
-            for months in [6, 12, 24]:
-                simulated_price = simulate_dca(ticker, months)
-                dca_values.append({
-                    'period': f"{months} bulan",
-                    'simulated_price': simulated_price
+        try:
+            ticker = row['Ticker']
+            avg_price = row['Avg Price']
+            current_price = get_current_price(ticker)
+            
+            if not np.isnan(current_price):
+                # Simulasi DCA
+                dca_values = []
+                for months in [6, 12, 24]:
+                    simulated_price = simulate_dca(ticker, months)
+                    dca_values.append({
+                        'period': f"{months} bulan",
+                        'simulated_price': simulated_price
+                    })
+                
+                # Dapatkan data untuk support
+                hist_data = get_stock_data(ticker, period="2y")
+                support_levels = {}
+                if not hist_data.empty:
+                    support_levels = calculate_support_levels(hist_data)
+                
+                results.append({
+                    'Stock': row['Stock'],
+                    'Ticker': ticker,
+                    'Avg Price': avg_price,
+                    'Current Price': current_price,
+                    'DCA Analysis': dca_values,
+                    'Support Levels': support_levels,
+                    'Performance': (current_price - avg_price) / avg_price * 100
                 })
-            
-            # Dapatkan data untuk support
-            hist_data = get_stock_data(ticker, period="2y")
-            support_levels = calculate_support_levels(hist_data) if not hist_data.empty else {}
-            
-            results.append({
-                'Stock': row['Stock'],
-                'Ticker': ticker,
-                'Avg Price': avg_price,
-                'Current Price': current_price,
-                'DCA Analysis': dca_values,
-                'Support Levels': support_levels,
-                'Performance': (current_price - avg_price) / avg_price * 100
-            })
+        except Exception as e:
+            print(f"Error in DCA analysis for {ticker}: {str(e)}")
     
     return pd.DataFrame(results)
 
