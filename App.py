@@ -176,7 +176,7 @@ def dca_analysis(df):
         text=df['Profit/Loss'].apply(lambda x: f"Rp {x:,.0f}"),
         textposition='auto',
         marker_color=np.where(df['Profit/Loss'] >= 0, 'green', 'red')
-    )
+    ))
     fig.update_layout(
         title='Profit/Loss per Saham',
         yaxis_title='Jumlah (Rp)',
