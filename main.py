@@ -1330,7 +1330,7 @@ def calculate_bollinger_bands(data, window=20, num_std=2):
 
 # Perbaikan fungsi calculate_technical_indicators
 def calculate_technical_indicators(data):
-    """Menghitung semua indikator teknikal"""
+    """Menghitung semua indikator teknikal dengan penanganan error"""
     if data.empty or len(data) < 30:  # Minimal 30 data point
         return data
     
@@ -1351,7 +1351,7 @@ def calculate_technical_indicators(data):
         data['BB_Lower'] = lower_band
         
     except Exception as e:
-        st.error(f"Error menghitung indikator teknikal: {str(e)}")
+        print(f"Error menghitung indikator teknikal: {str(e)}")
     
     return data
 
