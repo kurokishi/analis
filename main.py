@@ -1355,6 +1355,7 @@ def calculate_technical_indicators(data):
     
     return data
 
+# Perbaikan fungsi generate_technical_signals
 def generate_technical_signals(data):
     """Membuat sinyal teknikal berdasarkan indikator"""
     signals = []
@@ -1362,9 +1363,13 @@ def generate_technical_signals(data):
     if data.empty:
         return pd.DataFrame()
     
+    # Pastikan kita menggunakan nilai terakhir yang valid
+    last_index = data.index[-1]
+    last_row = data.loc[last_index]
+    
     # Sinyal RSI
-    if 'RSI' in data.columns:
-        latest_rsi = data['RSI'].iloc[-1]
+    if 'RSI' in data.columns and not pd.isna(last_row['RSI']):
+        latest_rsi = last_row['RSI']
         if latest_rsi > 70:
             signals.append(('RSI', 'Overbought', 'Jual', 'red'))
         elif latest_rsi < 30:
@@ -1374,45 +1379,55 @@ def generate_technical_signals(data):
     
     # Sinyal MACD
     if 'MACD' in data.columns and 'MACD_Signal' in data.columns:
-        macd = data['MACD'].iloc[-1]
-        signal = data['MACD_Signal'].iloc[-1]
-        prev_macd = data['MACD'].iloc[-2]
-        prev_signal = data['MACD_Signal'].iloc[-2]
-        
-        # Golden Cross
-        if macd > signal and prev_macd <= prev_signal:
-            signals.append(('MACD', 'Golden Cross', 'Beli', 'green'))
-        # Death Cross
-        elif macd < signal and prev_macd >= prev_signal:
-            signals.append(('MACD', 'Death Cross', 'Jual', 'red'))
-        else:
-            if macd > signal:
-                signals.append(('MACD', 'Bullish', 'Tahan', 'yellow'))
+        if not pd.isna(last_row['MACD']) and not pd.isna(last_row['MACD_Signal']):
+            macd = last_row['MACD']
+            signal = last_row['MACD_Signal']
+            
+            # Dapatkan baris sebelumnya yang valid
+            prev_index = data.index[-2] if len(data) > 1 else None
+            if prev_index:
+                prev_macd = data.loc[prev_index, 'MACD']
+                prev_signal = data.loc[prev_index, 'MACD_Signal']
             else:
-                signals.append(('MACD', 'Bearish', 'Tahan', 'yellow'))
+                prev_macd = prev_signal = None
+            
+            # Golden Cross
+            if prev_macd is not None and prev_signal is not None:
+                if macd > signal and prev_macd <= prev_signal:
+                    signals.append(('MACD', 'Golden Cross', 'Beli', 'green'))
+                # Death Cross
+                elif macd < signal and prev_macd >= prev_signal:
+                    signals.append(('MACD', 'Death Cross', 'Jual', 'red'))
+                else:
+                    if macd > signal:
+                        signals.append(('MACD', 'Bullish', 'Tahan', 'yellow'))
+                    else:
+                        signals.append(('MACD', 'Bearish', 'Tahan', 'yellow'))
     
     # Sinyal Bollinger Bands
     if 'Close' in data.columns and 'BB_Upper' in data.columns and 'BB_Lower' in data.columns:
-        close = data['Close'].iloc[-1]
-        bb_upper = data['BB_Upper'].iloc[-1]
-        bb_lower = data['BB_Lower'].iloc[-1]
-        
-        if close > bb_upper:
-            signals.append(('Bollinger Bands', 'Overbought', 'Jual', 'red'))
-        elif close < bb_lower:
-            signals.append(('Bollinger Bands', 'Oversold', 'Beli', 'green'))
-        else:
-            signals.append(('Bollinger Bands', 'Netral', 'Tahan', 'yellow'))
+        if not pd.isna(last_row['Close']) and not pd.isna(last_row['BB_Upper']) and not pd.isna(last_row['BB_Lower']):
+            close = last_row['Close']
+            bb_upper = last_row['BB_Upper']
+            bb_lower = last_row['BB_Lower']
+            
+            if close > bb_upper:
+                signals.append(('Bollinger Bands', 'Overbought', 'Jual', 'red'))
+            elif close < bb_lower:
+                signals.append(('Bollinger Bands', 'Oversold', 'Beli', 'green'))
+            else:
+                signals.append(('Bollinger Bands', 'Netral', 'Tahan', 'yellow'))
     
     # Sinyal Volume
-    if 'Volume' in data.columns:
-        volume = data['Volume'].iloc[-1]
+    if 'Volume' in data.columns and not pd.isna(last_row['Volume']):
+        volume = last_row['Volume']
         avg_volume = data['Volume'].tail(20).mean()
         
-        if volume > avg_volume * 1.5:
-            signals.append(('Volume', 'Volume Tinggi', 'Konfirmasi', 'blue'))
-        elif volume < avg_volume * 0.5:
-            signals.append(('Volume', 'Volume Rendah', 'Hati-hati', 'orange'))
+        if not pd.isna(avg_volume):
+            if volume > avg_volume * 1.5:
+                signals.append(('Volume', 'Volume Tinggi', 'Konfirmasi', 'blue'))
+            elif volume < avg_volume * 0.5:
+                signals.append(('Volume', 'Volume Rendah', 'Hati-hati', 'orange'))
     
     return pd.DataFrame(signals, columns=['Indikator', 'Sinyal', 'Rekomendasi', 'Warna'])
 
