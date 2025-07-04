@@ -368,7 +368,7 @@ def investment_simulation(portfolio_df, api_key):
     
     if not buy_recommendations.empty:
         # Hitung rangking
-        buy_recommendations['Ranking'] = range(1, len(buy_recommendations) + 1
+        buy_recommendations['Ranking'] = range(1, len(buy_recommendations) + 1)
         
         # Tampilkan tabel rekomendasi
         rec_df = buy_recommendations[[
