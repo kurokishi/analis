@@ -16,7 +16,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Fungsi untuk mendapatkan API key - PERBAIKAN DI SINI
+# Fungsi untuk mendapatkan API key
 def get_fmp_api_key():
     if 'fmp_api_key' not in st.session_state:
         with st.sidebar:
@@ -25,7 +25,6 @@ def get_fmp_api_key():
             if st.button("Simpan API Key"):
                 st.session_state.fmp_api_key = api_key
                 st.success("API Key disimpan!")
-                # Perbaikan: ganti experimental_rerun dengan rerun
                 st.rerun()
         return None
     return st.session_state.fmp_api_key
@@ -113,41 +112,43 @@ def get_fmp_data(ticker, api_key):
         st.error(f"Error fetching FMP data: {str(e)}")
         return None
 
+# Fungsi untuk memperbarui data real-time portfolio
+def update_portfolio_data(portfolio_df):
+    if portfolio_df.empty:
+        return portfolio_df
+    
+    df = portfolio_df.copy()
+    lot_balance_col = 'Lot Balance'
+    
+    # Dapatkan harga real-time
+    current_prices = []
+    for idx, row in df.iterrows():
+        ticker = row['Ticker']
+        last_price, _, _, _ = get_realtime_data(ticker)
+        current_prices.append(last_price if last_price is not None else row['Avg Price'])
+    
+    df['Current Price'] = current_prices
+    df['Current Value'] = df[lot_balance_col] * df['Current Price']
+    df['Profit/Loss'] = df['Current Value'] - (df[lot_balance_col] * df['Avg Price'])
+    df['Profit/Loss %'] = (df['Current Value'] / (df[lot_balance_col] * df['Avg Price']) - 1) * 100
+    
+    return df
+
 # Fungsi analisis DCA dengan data real-time
 def dca_analysis(df):
     if df.empty:
         return
     
+    # Perbarui data dengan harga real-time
+    df = update_portfolio_data(df)
+    
     st.subheader("📊 Analisis Dollar Cost Averaging (DCA)")
     
+    lot_balance_col = 'Lot Balance'
+    
     # Hitung nilai investasi awal
-    df['Total Investment'] = df['Lot Balance'] * df['Avg Price']
+    df['Total Investment'] = df[lot_balance_col] * df['Avg Price']
     total_investment = df['Total Investment'].sum()
-    
-    # Dapatkan harga real-time dan hitung nilai saat ini
-    current_values = []
-    current_prices = []
-    changes = []
-    
-    for idx, row in df.iterrows():
-        ticker = row['Ticker']
-        last_price, change, change_percent, _ = get_realtime_data(ticker)
-        
-        if last_price is not None:
-            current_value = row['Lot Balance'] * last_price
-            current_values.append(current_value)
-            current_prices.append(last_price)
-            changes.append(current_value - row['Total Investment'])
-        else:
-            current_values.append(0)
-            current_prices.append(0)
-            changes.append(0)
-    
-    df['Current Price'] = current_prices
-    df['Current Value'] = current_values
-    df['Profit/Loss'] = changes
-    df['Profit/Loss %'] = (df['Current Value'] / df['Total Investment'] - 1) * 100
-    
     total_current_value = df['Current Value'].sum()
     total_profit = total_current_value - total_investment
     total_profit_percent = (total_current_value / total_investment - 1) * 100
@@ -178,6 +179,7 @@ def dca_analysis(df):
         textposition='auto',
         marker_color=np.where(df['Profit/Loss'] >= 0, 'green', 'red')
     ))
+    
     fig.update_layout(
         title='Profit/Loss per Saham',
         yaxis_title='Jumlah (Rp)',
@@ -187,17 +189,105 @@ def dca_analysis(df):
     
     # Tampilkan tabel detail
     st.subheader("Detail Portfolio")
-    df_display = df[['Ticker', 'Lot Balance', 'Avg Price', 'Current Price', 
+    df_display = df[['Ticker', lot_balance_col, 'Avg Price', 'Current Price', 
                     'Total Investment', 'Current Value', 'Profit/Loss', 'Profit/Loss %']]
     
+    # Rename kolom untuk tampilan yang lebih baik
+    df_display = df_display.rename(columns={
+        lot_balance_col: 'Jumlah Lembar',
+        'Avg Price': 'Harga Rata-rata',
+        'Current Price': 'Harga Saat Ini',
+        'Total Investment': 'Total Investasi',
+        'Current Value': 'Nilai Saat Ini',
+        'Profit/Loss': 'Keuntungan/Kerugian',
+        'Profit/Loss %': 'Keuntungan/Kerugian %'
+    })
+    
     st.dataframe(df_display.style.format({
-        'Avg Price': 'Rp {:,.0f}',
-        'Current Price': 'Rp {:,.0f}',
-        'Total Investment': 'Rp {:,.0f}',
-        'Current Value': 'Rp {:,.0f}',
-        'Profit/Loss': 'Rp {:,.0f}',
-        'Profit/Loss %': '{:+.2f}%'
+        'Harga Rata-rata': 'Rp {:,.0f}',
+        'Harga Saat Ini': 'Rp {:,.0f}',
+        'Total Investasi': 'Rp {:,.0f}',
+        'Nilai Saat Ini': 'Rp {:,.0f}',
+        'Keuntungan/Kerugian': 'Rp {:,.0f}',
+        'Keuntungan/Kerugian %': '{:+.2f}%'
     }), use_container_width=True)
+    
+    return df
+
+# Fungsi simulasi pembelian saham
+def investment_simulation(portfolio_df):
+    st.subheader("💰 Simulasi Pembelian Saham")
+    
+    # Perbarui data dengan harga real-time
+    portfolio_df = update_portfolio_data(portfolio_df)
+    
+    # Input modal
+    investment_amount = st.number_input(
+        "Modal Investasi (Rp)", 
+        min_value=100000, 
+        step=100000, 
+        value=500000,
+        format="%d"
+    )
+    
+    # Hitung total nilai portfolio saat ini
+    total_portfolio_value = portfolio_df['Current Value'].sum()
+    
+    # Simulasi pembelian berdasarkan proporsi saham saat ini
+    portfolio_df['Allocation %'] = portfolio_df['Current Value'] / total_portfolio_value
+    portfolio_df['Allocation Amount'] = portfolio_df['Allocation %'] * investment_amount
+    portfolio_df['Additional Shares'] = (portfolio_df['Allocation Amount'] / portfolio_df['Current Price']).astype(int)
+    portfolio_df['Additional Investment'] = portfolio_df['Additional Shares'] * portfolio_df['Current Price']
+    portfolio_df['New Shares'] = portfolio_df['Lot Balance'] + portfolio_df['Additional Shares']
+    portfolio_df['New Value'] = portfolio_df['New Shares'] * portfolio_df['Current Price']
+    
+    # Hitung total setelah simulasi
+    total_new_investment = portfolio_df['Additional Investment'].sum()
+    total_new_value = portfolio_df['New Value'].sum()
+    
+    # Tampilkan hasil simulasi
+    st.write(f"### Hasil Simulasi untuk Investasi Rp {investment_amount:,.0f}")
+    
+    col1, col2 = st.columns(2)
+    col1.metric("Total Investasi Tambahan", f"Rp {total_new_investment:,.0f}")
+    col2.metric("Total Nilai Portfolio Baru", f"Rp {total_new_value:,.0f}", 
+                f"{((total_new_value - total_portfolio_value)/total_portfolio_value*100):+.2f}%")
+    
+    # Tampilkan detail per saham
+    st.subheader("Detail Pembelian")
+    sim_df = portfolio_df[[
+        'Ticker', 'Allocation %', 'Current Price', 'Allocation Amount',
+        'Additional Shares', 'Additional Investment', 'New Shares', 'New Value'
+    ]]
+    
+    # Rename kolom
+    sim_df = sim_df.rename(columns={
+        'Allocation %': 'Proporsi',
+        'Current Price': 'Harga Saat Ini',
+        'Allocation Amount': 'Alokasi Dana',
+        'Additional Shares': 'Lembar Tambahan',
+        'Additional Investment': 'Investasi Tambahan',
+        'New Shares': 'Total Lembar',
+        'New Value': 'Nilai Baru'
+    })
+    
+    # Format kolom
+    sim_display = sim_df.style.format({
+        'Proporsi': '{:.2%}',
+        'Harga Saat Ini': 'Rp {:,.0f}',
+        'Alokasi Dana': 'Rp {:,.0f}',
+        'Investasi Tambahan': 'Rp {:,.0f}',
+        'Nilai Baru': 'Rp {:,.0f}'
+    })
+    
+    st.dataframe(sim_display, use_container_width=True)
+    
+    # Grafik alokasi baru
+    st.subheader("Alokasi Portfolio Baru")
+    fig = px.pie(portfolio_df, names='Ticker', values='New Value',
+                 title='Komposisi Portfolio Setelah Investasi')
+    fig.update_traces(textposition='inside', textinfo='percent+label')
+    st.plotly_chart(fig, use_container_width=True)
 
 # Fungsi prediksi harga dengan model ARIMA
 def stock_prediction(ticker):
@@ -545,7 +635,8 @@ menu_options = [
     "Analisis DCA",
     "Prediksi Harga Saham",
     "Valuasi Saham",
-    "Tracking Modal"
+    "Tracking Modal",
+    "Simulasi Pembelian"  # Menu baru
 ]
 selected_menu = st.sidebar.selectbox("Pilih Fitur:", menu_options)
 
@@ -554,13 +645,13 @@ st.title("📈 Stock Analysis Toolkit Pro")
 
 if selected_menu == "Dashboard Portfolio":
     if not portfolio_df.empty:
-        dca_analysis(portfolio_df)
+        portfolio_df = dca_analysis(portfolio_df)
     else:
         st.info("Silakan upload file portfolio untuk melihat dashboard")
 
 elif selected_menu == "Analisis DCA":
     if not portfolio_df.empty:
-        dca_analysis(portfolio_df)
+        portfolio_df = dca_analysis(portfolio_df)
     else:
         st.warning("Silakan upload file portfolio terlebih dahulu")
 
@@ -584,3 +675,9 @@ elif selected_menu == "Valuasi Saham":
 
 elif selected_menu == "Tracking Modal":
     capital_tracking()
+
+elif selected_menu == "Simulasi Pembelian":
+    if not portfolio_df.empty:
+        investment_simulation(portfolio_df)
+    else:
+        st.warning("Silakan upload file portfolio terlebih dahulu")
