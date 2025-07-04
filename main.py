@@ -1372,19 +1372,22 @@ def calculate_technical_indicators(data):
     
     try:
         # Hitung RSI
-        data['RSI'] = calculate_rsi(data)
+        if 'Close' in data.columns:
+            data['RSI'] = calculate_rsi(data)
         
         # Hitung MACD
-        macd_line, signal_line, macd_hist = calculate_macd(data)
-        data['MACD'] = macd_line
-        data['MACD_Signal'] = signal_line
-        data['MACD_Hist'] = macd_hist
+        if 'Close' in data.columns:
+            macd_line, signal_line, macd_hist = calculate_macd(data)
+            data['MACD'] = macd_line
+            data['MACD_Signal'] = signal_line
+            data['MACD_Hist'] = macd_hist
         
         # Hitung Bollinger Bands
-        sma, upper_band, lower_band = calculate_bollinger_bands(data)
-        data['SMA20'] = sma
-        data['BB_Upper'] = upper_band
-        data['BB_Lower'] = lower_band
+        if 'Close' in data.columns:
+            sma, upper_band, lower_band = calculate_bollinger_bands(data)
+            data['SMA20'] = sma
+            data['BB_Upper'] = upper_band
+            data['BB_Lower'] = lower_band
         
     except Exception as e:
         print(f"Error menghitung indikator teknikal: {str(e)}")
@@ -1608,6 +1611,7 @@ with tab1:
         df = load_data(uploaded_file)
         
         if not df.empty:
+            st.session_state.user_portfolio = df
             st.success("Data berhasil dimuat!")
             st.subheader("Portofolio Saat Ini")
             st.dataframe(df.style.format({'Avg Price': 'Rp {:,.0f}'}), height=300)
@@ -2468,26 +2472,35 @@ with tab5:
         - Dapat dipengaruhi oleh akuisisi  
         """)
         
+# ====== Tab Analisis Teknikal (Tab6) ======
 with tab6:
     st.header("📊 Analisis Teknikal Saham")
     st.write("""
-    Analisis pergerakan harga saham menggunakan indikator teknikal:
+    Analisis pergerakan harga saham dalam portofolio Anda menggunakan indikator teknikal:
     - **RSI (Relative Strength Index)**: Mengukur momentum dan kondisi overbought/oversold
     - **MACD (Moving Average Convergence Divergence)**: Mengidentifikasi perubahan momentum
     - **Bollinger Bands**: Mengukur volatilitas dan tingkat harga relatif
     """)
     
-    # Pilih indeks saham
+    # Periksa apakah user sudah mengunggah file portofolio
+    if 'user_portfolio' not in st.session_state or st.session_state.user_portfolio.empty:
+        st.warning("Silakan unggah file portofolio di tab 'Analisis Portofolio' terlebih dahulu")
+        st.stop()
+    
+    # Ambil data portofolio user dari session state
+    df_portfolio = st.session_state.user_portfolio
+    portfolio_stocks = df_portfolio['Stock'].unique().tolist()
+    
+    # Pilih saham dari portofolio user
+    selected_stock = st.selectbox("Pilih Saham dari Portofolio Anda", portfolio_stocks)
+    
+    # Dapatkan ticker untuk saham yang dipilih
+    selected_ticker = df_portfolio[df_portfolio['Stock'] == selected_stock]['Ticker'].iloc[0]
+    
+    # Parameter analisis
+    st.write("### Parameter Analisis")
     col1, col2 = st.columns(2)
     with col1:
-        index_selection = st.selectbox("Pilih Indeks Saham", ["Kompas100", "LQ45"], key="tech_index")
-        
-        # Pilih saham berdasarkan indeks
-        stocks = KOMPAS100 if index_selection == "Kompas100" else LQ45
-        selected_stock = st.selectbox("Pilih Saham", stocks, key="tech_stock")
-    
-    with col2:
-        st.write("### Parameter Analisis")
         period = st.selectbox("Periode Data", ['1 Bulan', '3 Bulan', '6 Bulan', '1 Tahun', '2 Tahun'], index=3)
         window_map = {
             '1 Bulan': 30,
@@ -2497,27 +2510,25 @@ with tab6:
             '2 Tahun': 730
         }
         days = window_map[period]
-        
-        # Parameter indikator
+    with col2:
         st.write("**Parameter Indikator:**")
         rsi_window = st.slider("RSI Period", 5, 30, 14, key="rsi_window")
         bb_window = st.slider("Bollinger Bands Period", 10, 50, 20, key="bb_window")
         bb_std = st.slider("Bollinger Bands Std Dev", 1.0, 3.0, 2.0, step=0.1, key="bb_std")
     
     # Dapatkan data harga
-    ticker = f"{selected_stock}.JK"
     try:
-        # PERBAIKAN: Tambahkan auto_adjust=False
-        data = yf.download(ticker, period=f"{days}d", auto_adjust=False)
+        # PERBAIKAN: Tambahkan auto_adjust=False dan timeout
+        data = yf.download(selected_ticker, period=f"{days}d", auto_adjust=False, timeout=10)
         
         if data.empty:
-            st.error(f"Tidak dapat mengambil data untuk {ticker}")
+            st.error(f"Tidak dapat mengambil data untuk {selected_ticker}")
         else:
             # Hitung indikator teknikal
             data = calculate_technical_indicators(data)
             
             # Tampilkan sinyal terbaru
-            st.subheader(f"Sinyal Teknikal Terkini - {selected_stock}")
+            st.subheader(f"Sinyal Teknikal Terkini - {selected_stock} ({selected_ticker})")
             signals_df = generate_technical_signals(data)
             
             if not signals_df.empty:
@@ -2549,8 +2560,8 @@ with tab6:
                 st.warning("Tidak ada sinyal teknikal yang terdeteksi")
             
             # Tampilkan grafik
-            st.subheader(f"Grafik Analisis Teknikal - {selected_stock}")
-            fig = plot_technical_analysis(data, ticker)
+            st.subheader(f"Grafik Analisis Teknikal - {selected_stock} ({selected_ticker})")
+            fig = plot_technical_analysis(data, selected_ticker)
             st.plotly_chart(fig, use_container_width=True)
             
             # Tampilkan data mentah
@@ -2567,8 +2578,8 @@ with tab6:
                 }))
                 
     except Exception as e:
-        st.error(f"Error mendapatkan data untuk {ticker}: {str(e)}")
-    
+        st.error(f"Error mendapatkan data untuk {selected_ticker}: {str(e)}")
+       
     # Penjelasan indikator teknikal
     st.markdown("---")
     with st.expander("📚 Penjelasan Indikator Teknikal"):
