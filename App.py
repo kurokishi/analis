@@ -137,7 +137,7 @@ def update_portfolio_data(portfolio_df):
 # Fungsi analisis DCA dengan data real-time
 def dca_analysis(df):
     if df.empty:
-        return
+        return df
     
     # Perbarui data dengan harga real-time
     df = update_portfolio_data(df)
@@ -214,9 +214,76 @@ def dca_analysis(df):
     
     return df
 
-# Fungsi simulasi pembelian saham
-def investment_simulation(portfolio_df):
-    st.subheader("💰 Simulasi Pembelian Saham")
+# Fungsi untuk menghitung skor valuasi saham
+def calculate_valuation_score(ticker, api_key):
+    try:
+        fmp_data = get_fmp_data(ticker, api_key)
+        if not fmp_data:
+            return 0
+        
+        ratios = fmp_data['ratios']
+        quote = fmp_data['quote']
+        profile = fmp_data['profile']
+        
+        # Dapatkan rasio yang diperlukan
+        per = ratios.get('priceEarningsRatio', 0)
+        pbv = ratios.get('priceToBookRatio', 0)
+        roe = ratios.get('returnOnEquity', 0) * 100
+        npm = ratios.get('netProfitMargin', 0) * 100
+        dividend_yield = ratios.get('dividendYield', 0) * 100
+        
+        # Hitung skor valuasi
+        score = 0
+        
+        # PER rendah lebih baik
+        if per > 0 and per < 15:
+            score += 3
+        elif per < 20:
+            score += 2
+        elif per < 25:
+            score += 1
+            
+        # PBV rendah lebih baik
+        if pbv > 0 and pbv < 1:
+            score += 3
+        elif pbv < 1.5:
+            score += 2
+        elif pbv < 2:
+            score += 1
+            
+        # ROE tinggi lebih baik
+        if roe > 20:
+            score += 3
+        elif roe > 15:
+            score += 2
+        elif roe > 10:
+            score += 1
+            
+        # NPM tinggi lebih baik
+        if npm > 20:
+            score += 3
+        elif npm > 15:
+            score += 2
+        elif npm > 10:
+            score += 1
+            
+        # Dividend yield tinggi lebih baik
+        if dividend_yield > 5:
+            score += 3
+        elif dividend_yield > 3:
+            score += 2
+        elif dividend_yield > 1:
+            score += 1
+            
+        return score
+    
+    except Exception as e:
+        st.error(f"Error calculating valuation score: {str(e)}")
+        return 0
+
+# Fungsi simulasi pembelian saham berbasis valuasi
+def investment_simulation(portfolio_df, api_key):
+    st.subheader("💰 Rekomendasi Pembelian Saham Berbasis Valuasi")
     
     # Perbarui data dengan harga real-time
     portfolio_df = update_portfolio_data(portfolio_df)
@@ -230,64 +297,128 @@ def investment_simulation(portfolio_df):
         format="%d"
     )
     
-    # Hitung total nilai portfolio saat ini
-    total_portfolio_value = portfolio_df['Current Value'].sum()
+    # Hitung skor valuasi untuk setiap saham
+    valuation_scores = []
+    for ticker in portfolio_df['Ticker']:
+        clean_ticker = ticker.replace('.JK', '')
+        score = calculate_valuation_score(clean_ticker, api_key) if api_key else 0
+        valuation_scores.append(score)
     
-    # Simulasi pembelian berdasarkan proporsi saham saat ini
-    portfolio_df['Allocation %'] = portfolio_df['Current Value'] / total_portfolio_value
-    portfolio_df['Allocation Amount'] = portfolio_df['Allocation %'] * investment_amount
+    portfolio_df['Valuation Score'] = valuation_scores
+    
+    # Urutkan berdasarkan skor valuasi tertinggi
+    portfolio_df = portfolio_df.sort_values(by='Valuation Score', ascending=False)
+    
+    # Hitung bobot alokasi berdasarkan skor
+    total_score = portfolio_df['Valuation Score'].sum()
+    if total_score > 0:
+        portfolio_df['Allocation Weight'] = portfolio_df['Valuation Score'] / total_score
+    else:
+        # Jika semua skor 0, alokasikan sama rata
+        portfolio_df['Allocation Weight'] = 1 / len(portfolio_df)
+    
+    # Alokasikan dana berdasarkan bobot
+    portfolio_df['Allocation Amount'] = portfolio_df['Allocation Weight'] * investment_amount
     portfolio_df['Additional Shares'] = (portfolio_df['Allocation Amount'] / portfolio_df['Current Price']).astype(int)
     portfolio_df['Additional Investment'] = portfolio_df['Additional Shares'] * portfolio_df['Current Price']
+    
+    # Hitung total yang benar-benar dialokasikan (mungkin ada sisa karena pembulatan)
+    actual_investment = portfolio_df['Additional Investment'].sum()
+    
+    # Hitung sisa dana
+    remaining_capital = investment_amount - actual_investment
+    
+    # Jika ada sisa dana, alokasikan ke saham dengan skor tertinggi
+    if remaining_capital > 0:
+        for idx, row in portfolio_df.iterrows():
+            if remaining_capital <= 0:
+                break
+            current_price = row['Current Price']
+            if current_price <= remaining_capital:
+                additional_shares = remaining_capital // current_price
+                if additional_shares > 0:
+                    portfolio_df.at[idx, 'Additional Shares'] += additional_shares
+                    additional_investment = additional_shares * current_price
+                    portfolio_df.at[idx, 'Additional Investment'] += additional_investment
+                    remaining_capital -= additional_investment
+    
+    # Hitung nilai baru
     portfolio_df['New Shares'] = portfolio_df['Lot Balance'] + portfolio_df['Additional Shares']
     portfolio_df['New Value'] = portfolio_df['New Shares'] * portfolio_df['Current Price']
     
     # Hitung total setelah simulasi
     total_new_investment = portfolio_df['Additional Investment'].sum()
     total_new_value = portfolio_df['New Value'].sum()
+    total_portfolio_value = portfolio_df['Current Value'].sum()
     
     # Tampilkan hasil simulasi
-    st.write(f"### Hasil Simulasi untuk Investasi Rp {investment_amount:,.0f}")
+    st.write(f"### Rekomendasi Pembelian untuk Modal Rp {investment_amount:,.0f}")
     
     col1, col2 = st.columns(2)
     col1.metric("Total Investasi Tambahan", f"Rp {total_new_investment:,.0f}")
     col2.metric("Total Nilai Portfolio Baru", f"Rp {total_new_value:,.0f}", 
                 f"{((total_new_value - total_portfolio_value)/total_portfolio_value*100):+.2f}%")
     
-    # Tampilkan detail per saham
-    st.subheader("Detail Pembelian")
-    sim_df = portfolio_df[[
-        'Ticker', 'Allocation %', 'Current Price', 'Allocation Amount',
-        'Additional Shares', 'Additional Investment', 'New Shares', 'New Value'
-    ]]
+    # Tampilkan rekomendasi pembelian
+    st.subheader("Rekomendasi Pembelian Saham")
     
-    # Rename kolom
-    sim_df = sim_df.rename(columns={
-        'Allocation %': 'Proporsi',
-        'Current Price': 'Harga Saat Ini',
-        'Allocation Amount': 'Alokasi Dana',
-        'Additional Shares': 'Lembar Tambahan',
-        'Additional Investment': 'Investasi Tambahan',
-        'New Shares': 'Total Lembar',
-        'New Value': 'Nilai Baru'
-    })
+    # Urutkan berdasarkan jumlah pembelian terbanyak
+    buy_recommendations = portfolio_df[portfolio_df['Additional Shares'] > 0].copy()
+    buy_recommendations = buy_recommendations.sort_values(by='Additional Investment', ascending=False)
     
-    # Format kolom
-    sim_display = sim_df.style.format({
-        'Proporsi': '{:.2%}',
-        'Harga Saat Ini': 'Rp {:,.0f}',
-        'Alokasi Dana': 'Rp {:,.0f}',
-        'Investasi Tambahan': 'Rp {:,.0f}',
-        'Nilai Baru': 'Rp {:,.0f}'
-    })
+    if not buy_recommendations.empty:
+        # Hitung rangking
+        buy_recommendations['Ranking'] = range(1, len(buy_recommendations) + 1
+        
+        # Tampilkan tabel rekomendasi
+        rec_df = buy_recommendations[[
+            'Ranking', 'Ticker', 'Valuation Score', 'Current Price', 
+            'Additional Shares', 'Additional Investment'
+        ]]
+        
+        # Rename kolom
+        rec_df = rec_df.rename(columns={
+            'Valuation Score': 'Skor Valuasi',
+            'Current Price': 'Harga Saat Ini',
+            'Additional Shares': 'Jumlah Pembelian',
+            'Additional Investment': 'Total Pembelian'
+        })
+        
+        # Format kolom
+        rec_display = rec_df.style.format({
+            'Harga Saat Ini': 'Rp {:,.0f}',
+            'Total Pembelian': 'Rp {:,.0f}'
+        }).background_gradient(subset=['Skor Valuasi'], cmap='YlGn')
+        
+        st.dataframe(rec_display, use_container_width=True)
+        
+        # Grafik alokasi pembelian
+        st.subheader("Alokasi Pembelian")
+        fig = px.pie(buy_recommendations, names='Ticker', values='Additional Investment',
+                     title='Distribusi Pembelian Berdasarkan Valuasi')
+        fig.update_traces(textposition='inside', textinfo='percent+label')
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Grafik perbandingan skor valuasi
+        st.subheader("Skor Valuasi Saham")
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            x=buy_recommendations['Ticker'],
+            y=buy_recommendations['Valuation Score'],
+            text=buy_recommendations['Valuation Score'],
+            textposition='auto',
+            marker_color='skyblue'
+        ))
+        fig.update_layout(
+            title='Skor Valuasi Saham',
+            yaxis_title='Skor',
+            xaxis_title='Saham'
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.warning("Tidak ada rekomendasi pembelian saham dengan modal yang tersedia")
     
-    st.dataframe(sim_display, use_container_width=True)
-    
-    # Grafik alokasi baru
-    st.subheader("Alokasi Portfolio Baru")
-    fig = px.pie(portfolio_df, names='Ticker', values='New Value',
-                 title='Komposisi Portfolio Setelah Investasi')
-    fig.update_traces(textposition='inside', textinfo='percent+label')
-    st.plotly_chart(fig, use_container_width=True)
+    return portfolio_df
 
 # Fungsi prediksi harga dengan model ARIMA
 def stock_prediction(ticker):
@@ -636,7 +767,7 @@ menu_options = [
     "Prediksi Harga Saham",
     "Valuasi Saham",
     "Tracking Modal",
-    "Simulasi Pembelian"  # Menu baru
+    "Rekomendasi Pembelian"  # Menu baru
 ]
 selected_menu = st.sidebar.selectbox("Pilih Fitur:", menu_options)
 
@@ -676,8 +807,10 @@ elif selected_menu == "Valuasi Saham":
 elif selected_menu == "Tracking Modal":
     capital_tracking()
 
-elif selected_menu == "Simulasi Pembelian":
-    if not portfolio_df.empty:
-        investment_simulation(portfolio_df)
+elif selected_menu == "Rekomendasi Pembelian":
+    if not portfolio_df.empty and api_key:
+        portfolio_df = investment_simulation(portfolio_df, api_key)
+    elif not api_key:
+        st.warning("Silakan masukkan API Key FMP di sidebar")
     else:
         st.warning("Silakan upload file portfolio terlebih dahulu")
