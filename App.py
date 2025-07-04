@@ -16,7 +16,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Fungsi untuk mendapatkan API key
+# Fungsi untuk mendapatkan API key - PERBAIKAN DI SINI
 def get_fmp_api_key():
     if 'fmp_api_key' not in st.session_state:
         with st.sidebar:
@@ -25,7 +25,8 @@ def get_fmp_api_key():
             if st.button("Simpan API Key"):
                 st.session_state.fmp_api_key = api_key
                 st.success("API Key disimpan!")
-                st.experimental_rerun()
+                # Perbaikan: ganti experimental_rerun dengan rerun
+                st.rerun()
         return None
     return st.session_state.fmp_api_key
 
