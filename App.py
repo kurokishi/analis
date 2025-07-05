@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import yfinance as yf
 import requests
 from io import BytesIO
+import time
 
 # Konfigurasi halaman
 st.set_page_config(
@@ -368,7 +369,7 @@ def investment_simulation(portfolio_df, api_key):
     
     if not buy_recommendations.empty:
         # Hitung rangking
-        buy_recommendations['Ranking'] = range(1, len(buy_recommendations) + 1)
+        buy_recommendations['Ranking'] = range(1, len(buy_recommendations) + 1
         
         # Tampilkan tabel rekomendasi
         rec_df = buy_recommendations[[
@@ -420,330 +421,269 @@ def investment_simulation(portfolio_df, api_key):
     
     return portfolio_df
 
-# Fungsi prediksi harga dengan model ARIMA
-def stock_prediction(ticker):
+# Fungsi untuk menghitung indikator teknikal
+def calculate_technical_indicators(ticker):
     try:
-        st.subheader(f"📈 Prediksi Harga Saham: {ticker}")
-        
-        # Dapatkan data historis
         stock = yf.Ticker(ticker)
-        hist = stock.history(period="1y")
+        hist = stock.history(period="6mo")
         
         if hist.empty:
-            st.warning(f"Data tidak ditemukan untuk {ticker}")
-            return
+            return None, None, None
         
-        # Tampilkan grafik harga historis
-        fig = go.Figure()
-        fig.add_trace(go.Candlestick(
-            x=hist.index,
-            open=hist['Open'],
-            high=hist['High'],
-            low=hist['Low'],
-            close=hist['Close'],
-            name='Harga Historis'
-        ))
+        # Hitung RSI
+        delta = hist['Close'].diff()
+        gain = (delta.where(delta > 0, 0)).fillna(0)
+        loss = (-delta.where(delta < 0, 0)).fillna(0)
         
-        # Tambahkan moving averages
-        hist['MA20'] = hist['Close'].rolling(window=20).mean()
-        hist['MA50'] = hist['Close'].rolling(window=50).mean()
+        avg_gain = gain.rolling(window=14).mean()
+        avg_loss = loss.rolling(window=14).mean()
         
-        fig.add_trace(go.Scatter(
-            x=hist.index,
-            y=hist['MA20'],
-            line=dict(color='orange', width=1.5),
-            name='MA 20 Hari'
-        ))
+        rs = avg_gain / avg_loss
+        rsi = 100 - (100 / (1 + rs))
+        last_rsi = rsi.iloc[-1]
         
-        fig.add_trace(go.Scatter(
-            x=hist.index,
-            y=hist['MA50'],
-            line=dict(color='blue', width=1.5),
-            name='MA 50 Hari'
-        ))
+        # Hitung MACD
+        ema12 = hist['Close'].ewm(span=12, adjust=False).mean()
+        ema26 = hist['Close'].ewm(span=26, adjust=False).mean()
+        macd = ema12 - ema26
+        signal = macd.ewm(span=9, adjust=False).mean()
         
-        fig.update_layout(
-            title=f'Perjalanan Harga {ticker}',
-            yaxis_title='Harga (Rp)',
-            xaxis_rangeslider_visible=False
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        # Hitung MA Crossover
+        ma50 = hist['Close'].rolling(window=50).mean()
+        ma200 = hist['Close'].rolling(window=200).mean()
         
-        # Prediksi sederhana menggunakan moving average
-        last_price = hist['Close'].iloc[-1]
-        ma20 = hist['MA20'].iloc[-1]
-        ma50 = hist['MA50'].iloc[-1]
-        
-        # Logika prediksi sederhana
-        if ma20 > ma50 and last_price > ma20:
-            trend = "Naik"
-            prediction = last_price * 1.05  # +5%
-        elif ma20 < ma50 and last_price < ma20:
-            trend = "Turun"
-            prediction = last_price * 0.95  # -5%
+        # Cek crossover
+        if ma50.iloc[-1] > ma200.iloc[-1] and ma50.iloc[-2] <= ma200.iloc[-2]:
+            crossover = "Golden Cross"
+        elif ma50.iloc[-1] < ma200.iloc[-1] and ma50.iloc[-2] >= ma200.iloc[-2]:
+            crossover = "Death Cross"
         else:
-            trend = "Netral"
-            prediction = last_price * 1.01  # +1%
+            crossover = "No Crossover"
         
-        # Tampilkan metrik prediksi
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Harga Terakhir", f"Rp {last_price:,.0f}")
-        col2.metric("Prediksi 1 Bulan", f"Rp {prediction:,.0f}", 
-                   f"{(prediction/last_price-1)*100:+.2f}%")
-        col3.metric("Trend", trend)
-        
-        # Analisis teknis tambahan
-        st.subheader("Analisis Teknis")
-        rsi = calculate_rsi(hist['Close'])
-        macd, signal = calculate_macd(hist['Close'])
-        
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=hist.index, y=rsi, name='RSI', line=dict(color='purple')))
-        fig.add_hline(y=70, line_dash="dash", line_color="red")
-        fig.add_hline(y=30, line_dash="dash", line_color="green")
-        fig.update_layout(title='Relative Strength Index (RSI)', yaxis_title='RSI')
-        st.plotly_chart(fig, use_container_width=True)
-        
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=hist.index, y=macd, name='MACD', line=dict(color='blue')))
-        fig.add_trace(go.Scatter(x=hist.index, y=signal, name='Signal', line=dict(color='orange')))
-        fig.update_layout(title='Moving Average Convergence Divergence (MACD)', yaxis_title='Value')
-        st.plotly_chart(fig, use_container_width=True)
-        
+        return last_rsi, macd.iloc[-1], crossover
+    
     except Exception as e:
-        st.error(f"Error in prediction: {str(e)}")
+        st.error(f"Error calculating technical indicators: {str(e)}")
+        return None, None, None
 
-# Fungsi untuk menghitung RSI
-def calculate_rsi(prices, window=14):
-    delta = prices.diff()
-    gain = (delta.where(delta > 0, 0)).fillna(0)
-    loss = (-delta.where(delta < 0, 0)).fillna(0)
+# Fungsi screening saham
+def stock_screener(api_key):
+    st.subheader("🔍 Stock Screener")
     
-    avg_gain = gain.rolling(window=window).mean()
-    avg_loss = loss.rolling(window=window).mean()
+    # Inisialisasi session state untuk watchlist
+    if 'watchlist' not in st.session_state:
+        st.session_state.watchlist = []
     
-    rs = avg_gain / avg_loss
-    rsi = 100 - (100 / (1 + rs))
-    return rsi
-
-# Fungsi untuk menghitung MACD
-def calculate_macd(prices, slow=26, fast=12, signal=9):
-    ema_fast = prices.ewm(span=fast, adjust=False).mean()
-    ema_slow = prices.ewm(span=slow, adjust=False).mean()
-    macd = ema_fast - ema_slow
-    macd_signal = macd.ewm(span=signal, adjust=False).mean()
-    return macd, macd_signal
-
-# Fungsi valuasi saham dengan data FMP
-def stock_valuation(ticker, api_key):
-    try:
-        st.subheader(f"💰 Valuasi Saham: {ticker}")
-        
-        # Dapatkan data dari FMP
-        fmp_data = get_fmp_data(ticker, api_key)
-        if not fmp_data:
-            st.warning("Tidak dapat melanjutkan valuasi tanpa data FMP")
-            return
-        
-        # Ekstrak data yang dibutuhkan
-        profile = fmp_data['profile']
-        ratios = fmp_data['ratios']
-        cashflow = fmp_data['cashflow']
-        quote = fmp_data['quote']
-        growth = fmp_data['growth']
-        
-        # Tampilkan metrik utama
+    # Form kriteria screening
+    with st.form("screener_form"):
         col1, col2, col3 = st.columns(3)
-        current_price = quote.get('price', 0)
-        previous_close = quote.get('previousClose', current_price)
-        change = quote.get('change', 0)
-        change_percent = quote.get('changesPercentage', 0)
         
-        col1.metric("Harga Saat Ini", f"Rp {current_price:,.0f}", 
-                   f"{change_percent:+.2f}%")
+        # Kriteria fundamental
+        with col1:
+            st.subheader("Fundamental")
+            per_min = st.number_input("PER Min", value=0)
+            per_max = st.number_input("PER Max", value=50)
+            pbv_min = st.number_input("PBV Min", value=0)
+            pbv_max = st.number_input("PBV Max", value=5)
+            roe_min = st.number_input("ROE Min (%)", value=0)
+            der_max = st.number_input("DER Max", value=5)
+            growth_min = st.number_input("Revenue Growth Min (%)", value=0)
         
-        # PER (Price to Earnings Ratio)
-        per = ratios.get('priceEarningsRatio', 0)
-        industry_per = profile.get('peRatio', per * 1.1)  # Contoh perbandingan industri
-        col2.metric("PER (Price/Earnings)", f"{per:.2f}", 
-                   f"Industri: {industry_per:.2f}", delta_color="off")
+        # Kriteria teknikal
+        with col2:
+            st.subheader("Teknikal")
+            rsi_min = st.number_input("RSI Min", value=30)
+            rsi_max = st.number_input("RSI Max", value=70)
+            macd_min = st.number_input("MACD Min", value=-1)
+            macd_max = st.number_input("MACD Max", value=1)
+            ma_crossover = st.selectbox("MA Crossover", 
+                                       ["Any", "Golden Cross", "Death Cross", "No Crossover"])
         
-        # PBV (Price to Book Value)
-        pbv = ratios.get('priceToBookRatio', 0)
-        industry_pbv = pbv * 1.15  # Contoh perbandingan industri
-        col3.metric("PBV (Price/Book)", f"{pbv:.2f}", 
-                   f"Industri: {industry_pbv:.2f}", delta_color="off")
+        # Daftar saham yang akan di-scan
+        with col3:
+            st.subheader("Saham")
+            stock_list = st.text_area("Masukkan kode saham (pisahkan dengan koma)", 
+                                     "BBCA.JK, BBRI.JK, TLKM.JK, UNVR.JK")
+            stock_list = [s.strip() for s in stock_list.split(',') if s.strip()]
         
-        # Rasio keuangan lainnya
-        st.subheader("Rasio Keuangan")
-        ratios_data = {
-            'ROE': ratios.get('returnOnEquity', 0) * 100,
-            'DER': ratios.get('debtEquityRatio', 0),
-            'NPM': ratios.get('netProfitMargin', 0) * 100,
-            'EPS': ratios.get('earningsPerShare', 0),
-            'Dividend Yield': ratios.get('dividendYield', 0) * 100,
-            'Revenue Growth': growth.get('growthRevenue', 0) * 100
-        }
-        
-        # Tampilkan dalam bentuk metrik
-        cols = st.columns(len(ratios_data))
-        for i, (name, value) in enumerate(ratios_data.items()):
-            cols[i].metric(name, f"{value:.2f}{'%' if name != 'EPS' else ''}")
-        
-        # Grafik perbandingan valuasi
-        st.subheader("Perbandingan Valuasi")
-        valuation_data = {
-            'Metric': ['PER', 'PBV', 'ROE', 'DER', 'NPM', 'Dividend Yield'],
-            'Nilai': [per, pbv, ratios_data['ROE'], ratios_data['DER'], 
-                     ratios_data['NPM'], ratios_data['Dividend Yield']],
-            'Rata-rata Industri': [industry_per, industry_pbv, 
-                                  ratios_data['ROE'] * 0.9, ratios_data['DER'] * 1.1, 
-                                  ratios_data['NPM'] * 0.95, ratios_data['Dividend Yield'] * 1.2]
-        }
-        
-        df_valuation = pd.DataFrame(valuation_data)
-        fig = px.bar(df_valuation, x='Metric', y=['Nilai', 'Rata-rata Industri'], 
-                     barmode='group', title='Perbandingan Valuasi dengan Rata-rata Industri')
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Analisis DCF menggunakan data FMP
-        st.subheader("Discounted Cash Flow (DCF)")
-        
-        # Dapatkan free cash flow
-        free_cash_flow = cashflow.get('freeCashFlow', 0)
-        
-        # Hitung pertumbuhan historis
-        growth_rate = ratios_data['Revenue Growth'] / 100
-        if growth_rate > 0.15:
-            growth_rate = 0.15  # Batasi pertumbuhan tinggi
-        elif growth_rate < 0.03:
-            growth_rate = 0.03  # Minimum growth
-        
-        # Asumsi
-        st.write(f"""
-        **Asumsi:**
-        - Pertumbuhan 5 tahun: {growth_rate*100:.1f}%
-        - Pertumbuhan terminal: 3.0%
-        - Tingkat diskonto: 10.0%
-        - Free Cash Flow terakhir: Rp {free_cash_flow:,.0f}
-        """)
-        
-        # Hitung valuasi DCF
-        terminal_growth = 0.03
-        discount_rate = 0.10
-        
-        # Proyeksi FCF untuk 5 tahun
-        future_fcf = [free_cash_flow * (1 + growth_rate) ** i for i in range(1, 6)]
-        
-        # Terminal value
-        terminal_value = future_fcf[-1] * (1 + terminal_growth) / (discount_rate - terminal_growth)
-        
-        # Discount factor
-        discount_factors = [1 / (1 + discount_rate) ** i for i in range(1, 6)]
-        
-        # Nilai sekarang arus kas
-        pv_cash_flows = [fcf * df for fcf, df in zip(future_fcf, discount_factors)]
-        pv_terminal = terminal_value * discount_factors[-1]
-        
-        # Total nilai perusahaan
-        enterprise_value = sum(pv_cash_flows) + pv_terminal
-        
-        # Nilai ekuitas (dikurangi hutang, tambah kas)
-        debt = profile.get('totalDebt', 0)
-        cash = profile.get('cash', 0)
-        equity_value = enterprise_value - debt + cash
-        
-        # Nilai per saham
-        shares = profile.get('outstandingShares', 1)
-        fair_value = equity_value / shares
-        
-        # Tampilkan hasil
-        col1, col2 = st.columns(2)
-        col1.metric("Nilai Wajar (DCF)", f"Rp {fair_value:,.0f}")
-        col2.metric("Premium/Diskon", 
-                   f"{(current_price/fair_value-1)*100:+.2f}%", 
-                   "vs Harga Saat Ini")
-        
-        # Grafik DCF
-        dcf_df = pd.DataFrame({
-            'Tahun': ['Tahun 1', 'Tahun 2', 'Tahun 3', 'Tahun 4', 'Tahun 5', 'Terminal'],
-            'Nilai': pv_cash_flows + [pv_terminal]
-        })
-        
-        fig = px.pie(dcf_df, names='Tahun', values='Nilai', 
-                     title='Komposisi Nilai DCF')
-        st.plotly_chart(fig, use_container_width=True)
-        
-    except Exception as e:
-        st.error(f"Error in valuation: {str(e)}")
-        st.error(f"Detail error: {e}")
-
-# Fungsi tracking modal
-def capital_tracking():
-    if 'transactions' not in st.session_state:
-        st.session_state.transactions = []
-        
-    st.subheader("💵 Tracking Modal")
+        submit = st.form_submit_button("Screening Saham")
     
-    with st.expander("Tambah Transaksi Baru"):
-        with st.form("transaction_form"):
-            date = st.date_input("Tanggal Transaksi", datetime.today())
-            ticker = st.text_input("Kode Saham", "BBCA.JK")
-            action = st.selectbox("Aksi", ["Beli", "Jual"])
-            shares = st.number_input("Jumlah Lembar", min_value=1, value=100)
-            price = st.number_input("Harga per Lembar (Rp)", min_value=1, value=10000)
-            submit = st.form_submit_button("Tambahkan Transaksi")
+    if submit:
+        results = []
+        progress_bar = st.progress(0)
+        total_stocks = len(stock_list)
+        
+        for i, ticker in enumerate(stock_list):
+            progress_bar.progress((i+1)/total_stocks)
             
-            if submit:
-                transaction = {
-                    'Date': date,
+            # Dapatkan data fundamental
+            fmp_data = None
+            if api_key:
+                clean_ticker = ticker.replace('.JK', '')
+                fmp_data = get_fmp_data(clean_ticker, api_key)
+            
+            # Dapatkan data teknikal
+            rsi, macd, crossover = calculate_technical_indicators(ticker)
+            
+            # Evaluasi kriteria
+            fundamental_pass = True
+            technical_pass = True
+            
+            if fmp_data:
+                ratios = fmp_data['ratios']
+                profile = fmp_data['profile']
+                growth = fmp_data['growth']
+                
+                per = ratios.get('priceEarningsRatio', 0)
+                pbv = ratios.get('priceToBookRatio', 0)
+                roe = ratios.get('returnOnEquity', 0) * 100
+                der = ratios.get('debtEquityRatio', 0)
+                revenue_growth = growth.get('growthRevenue', 0) * 100 if growth else 0
+                
+                # Cek kriteria fundamental
+                if per_min > per or per > per_max:
+                    fundamental_pass = False
+                if pbv_min > pbv or pbv > pbv_max:
+                    fundamental_pass = False
+                if roe < roe_min:
+                    fundamental_pass = False
+                if der > der_max:
+                    fundamental_pass = False
+                if revenue_growth < growth_min:
+                    fundamental_pass = False
+            
+            # Cek kriteria teknikal
+            if rsi and (rsi < rsi_min or rsi > rsi_max):
+                technical_pass = False
+            if macd and (macd < macd_min or macd > macd_max):
+                technical_pass = False
+            if ma_crossover != "Any" and crossover != ma_crossover:
+                technical_pass = False
+            
+            # Tambahkan ke hasil jika memenuhi kriteria
+            if fundamental_pass and technical_pass:
+                results.append({
                     'Ticker': ticker,
-                    'Action': action,
-                    'Shares': shares,
-                    'Price': price,
-                    'Amount': shares * price * (-1 if action == "Jual" else 1)
-                }
-                st.session_state.transactions.append(transaction)
-                st.success("Transaksi ditambahkan!")
+                    'PER': per if fmp_data else 'N/A',
+                    'PBV': pbv if fmp_data else 'N/A',
+                    'ROE': roe if fmp_data else 'N/A',
+                    'DER': der if fmp_data else 'N/A',
+                    'Growth': revenue_growth if fmp_data else 'N/A',
+                    'RSI': rsi if rsi else 'N/A',
+                    'MACD': macd if macd else 'N/A',
+                    'MA Crossover': crossover if crossover else 'N/A'
+                })
+        
+        progress_bar.empty()
+        
+        if results:
+            # Tampilkan hasil
+            results_df = pd.DataFrame(results)
+            
+            # Format kolom
+            results_display = results_df.style.format({
+                'PER': '{:.2f}',
+                'PBV': '{:.2f}',
+                'ROE': '{:.2f}%',
+                'DER': '{:.2f}',
+                'Growth': '{:.2f}%',
+                'RSI': '{:.2f}',
+                'MACD': '{:.4f}'
+            })
+            
+            st.dataframe(results_display, use_container_width=True)
+            
+            # Tombol untuk menambahkan semua ke watchlist
+            if st.button("Tambahkan Semua ke Watchlist"):
+                for item in results:
+                    if item['Ticker'] not in st.session_state.watchlist:
+                        st.session_state.watchlist.append(item['Ticker'])
+                st.success(f"{len(results)} saham ditambahkan ke watchlist!")
+        else:
+            st.warning("Tidak ada saham yang memenuhi kriteria screening")
     
-    if st.session_state.transactions:
-        df_transactions = pd.DataFrame(st.session_state.transactions)
+    return stock_list
+
+# Fungsi watchlist
+def watchlist_manager():
+    st.subheader("⭐ Watchlist Saham")
+    
+    # Inisialisasi session state untuk watchlist
+    if 'watchlist' not in st.session_state:
+        st.session_state.watchlist = []
+    
+    # Form tambah saham ke watchlist
+    with st.form("add_to_watchlist"):
+        new_ticker = st.text_input("Tambah Saham (contoh: BBCA.JK)")
+        if st.form_submit_button("Tambahkan ke Watchlist"):
+            if new_ticker and new_ticker not in st.session_state.watchlist:
+                st.session_state.watchlist.append(new_ticker)
+                st.success(f"{new_ticker} ditambahkan ke watchlist!")
+    
+    # Tampilkan daftar watchlist
+    if st.session_state.watchlist:
+        # Dapatkan data real-time
+        watchlist_data = []
+        progress_bar = st.progress(0)
+        total_stocks = len(st.session_state.watchlist)
         
-        # Hitung saldo
-        df_transactions['Cumulative'] = df_transactions['Amount'].cumsum()
+        for i, ticker in enumerate(st.session_state.watchlist):
+            progress_bar.progress((i+1)/total_stocks)
+            price, change, change_percent, _ = get_realtime_data(ticker)
+            
+            if price is not None:
+                watchlist_data.append({
+                    'Ticker': ticker,
+                    'Harga': price,
+                    'Perubahan': change,
+                    'Perubahan %': change_percent
+                })
         
-        # Tampilkan tabel transaksi
-        st.dataframe(df_transactions.style.format({
-            'Price': 'Rp {:,.0f}',
-            'Amount': 'Rp {:,.0f}',
-            'Cumulative': 'Rp {:,.0f}'
-        }), use_container_width=True)
+        progress_bar.empty()
         
-        # Grafik cashflow
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=df_transactions['Date'],
-            y=df_transactions['Cumulative'],
-            mode='lines+markers',
-            name='Saldo Akumulatif'
-        ))
-        fig.update_layout(
-            title='Riwayat Saldo Investasi',
-            yaxis_title='Saldo (Rp)',
-            xaxis_title='Tanggal'
-        )
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Ringkasan modal
-        total_investment = df_transactions[df_transactions['Action'] == 'Beli']['Amount'].sum()
-        total_sales = abs(df_transactions[df_transactions['Action'] == 'Jual']['Amount'].sum())
-        net_cashflow = df_transactions['Amount'].sum()
-        current_balance = net_cashflow
-        
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Total Pembelian", f"Rp {total_investment:,.0f}")
-        col2.metric("Total Penjualan", f"Rp {total_sales:,.0f}")
-        col3.metric("Saldo Saat Ini", f"Rp {current_balance:,.0f}")
+        if watchlist_data:
+            # Tampilkan tabel
+            watchlist_df = pd.DataFrame(watchlist_data)
+            watchlist_display = watchlist_df.style.format({
+                'Harga': 'Rp {:,.0f}',
+                'Perubahan': 'Rp {:,.0f}',
+                'Perubahan %': '{:+.2f}%'
+            }).apply(lambda x: ['background-color: lightgreen' if x['Perubahan'] > 0 
+                              else 'background-color: lightcoral' for i in x], axis=1)
+            
+            st.dataframe(watchlist_display, use_container_width=True)
+            
+            # Grafik pergerakan harga
+            st.subheader("Pergerakan Harga")
+            fig = go.Figure()
+            
+            for ticker in st.session_state.watchlist:
+                stock = yf.Ticker(ticker)
+                hist = stock.history(period="1mo")
+                if not hist.empty:
+                    fig.add_trace(go.Scatter(
+                        x=hist.index,
+                        y=hist['Close'],
+                        name=ticker
+                    ))
+            
+            fig.update_layout(
+                title='Pergerakan Harga 1 Bulan Terakhir',
+                yaxis_title='Harga (Rp)',
+                xaxis_title='Tanggal'
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Tombol hapus
+            st.subheader("Kelola Watchlist")
+            delete_ticker = st.selectbox("Pilih saham untuk dihapus", st.session_state.watchlist)
+            if st.button(f"Hapus {delete_ticker} dari Watchlist"):
+                st.session_state.watchlist.remove(delete_ticker)
+                st.success(f"{delete_ticker} dihapus dari watchlist!")
+        else:
+            st.warning("Tidak ada data real-time untuk saham di watchlist")
+    else:
+        st.info("Watchlist kosong. Tambahkan saham untuk mulai memantau")
 
 # Sidebar menu
 st.sidebar.title("📋 Menu Analisis")
@@ -759,6 +699,10 @@ if uploaded_file:
     if not portfolio_df.empty:
         st.sidebar.success("File portfolio berhasil diupload!")
         st.sidebar.dataframe(portfolio_df[['Stock', 'Ticker']])
+        
+        # Inisialisasi watchlist dengan saham dari portfolio
+        if 'watchlist' not in st.session_state:
+            st.session_state.watchlist = portfolio_df['Ticker'].tolist()
 
 st.sidebar.header("Analisis")
 menu_options = [
@@ -767,7 +711,9 @@ menu_options = [
     "Prediksi Harga Saham",
     "Valuasi Saham",
     "Tracking Modal",
-    "Rekomendasi Pembelian"  # Menu baru
+    "Rekomendasi Pembelian",
+    "Screening Saham",  # Menu baru
+    "Watchlist"         # Menu baru
 ]
 selected_menu = st.sidebar.selectbox("Pilih Fitur:", menu_options)
 
@@ -814,3 +760,12 @@ elif selected_menu == "Rekomendasi Pembelian":
         st.warning("Silakan masukkan API Key FMP di sidebar")
     else:
         st.warning("Silakan upload file portfolio terlebih dahulu")
+
+elif selected_menu == "Screening Saham":
+    if api_key:
+        stock_screener(api_key)
+    else:
+        st.warning("Silakan masukkan API Key FMP di sidebar")
+
+elif selected_menu == "Watchlist":
+    watchlist_manager()
