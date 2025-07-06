@@ -9,5 +9,4 @@ matplotlib
 tensorflow
 scikit-learn
 Prophet 
-newsapi
 textblob
