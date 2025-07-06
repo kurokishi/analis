@@ -13,7 +13,22 @@ try:
 except ImportError:
     NewsApiClient = None
     st.warning("NewsAPI client tidak tersedia. Fitur berita akan dibatasi.")
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+
+# Perbaikan untuk vaderSentiment
+try:
+    from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+except ImportError:
+    import subprocess
+    import sys
+    import warnings
+    warnings.filterwarnings("ignore", message=".*vaderSentiment.*")
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "vaderSentiment"])
+        from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+    except:
+        SentimentIntensityAnalyzer = None
+        st.warning("Modul vaderSentiment tidak tersedia. Analisis sentimen akan dibatasi.")
+
 from textblob import TextBlob
 import feedparser
 
