@@ -7,6 +7,10 @@ from datetime import datetime, timedelta
 import yfinance as yf
 import requests
 from io import BytesIO
+from newsapi import NewsApiClient
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from textblob import TextBlob
+import feedparser
 
 # Konfigurasi halaman
 st.set_page_config(
@@ -745,6 +749,292 @@ def capital_tracking():
         col2.metric("Total Penjualan", f"Rp {total_sales:,.0f}")
         col3.metric("Saldo Saat Ini", f"Rp {current_balance:,.0f}")
 
+# Konfigurasi halaman - tambahkan menu baru
+st.set_page_config(
+    page_title="Stock Analysis Toolkit Pro+",
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Fungsi untuk mendapatkan NewsAPI key
+def get_news_api_key():
+    if 'news_api_key' not in st.session_state:
+        with st.sidebar:
+            st.subheader("NewsAPI Configuration")
+            api_key = st.text_input("Masukkan NewsAPI Key", type="password")
+            if st.button("Simpan NewsAPI Key"):
+                st.session_state.news_api_key = api_key
+                st.success("NewsAPI Key disimpan!")
+                st.rerun()
+        return None
+    return st.session_state.news_api_key
+
+# Fungsi untuk mendapatkan berita dari NewsAPI
+def get_news_from_newsapi(query, api_key, language='en', page_size=10):
+    try:
+        newsapi = NewsApiClient(api_key=api_key)
+        news = newsapi.get_everything(q=query,
+                                     language=language,
+                                     sort_by='relevancy',
+                                     page_size=page_size)
+        articles = []
+        for article in news['articles']:
+            articles.append({
+                'title': article['title'],
+                'description': article['description'],
+                'url': article['url'],
+                'source': article['source']['name'],
+                'published_at': article['published_at'],
+                'content': article['content']
+            })
+        return articles
+    except Exception as e:
+        st.error(f"Error fetching news from NewsAPI: {str(e)}")
+        return []
+
+# Fungsi untuk mendapatkan berita dari Yahoo Finance
+def get_news_from_yahoo(ticker):
+    try:
+        news_url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
+        feed = feedparser.parse(news_url)
+        articles = []
+        for entry in feed.entries[:10]:
+            articles.append({
+                'title': entry.title,
+                'description': entry.summary if 'summary' in entry else '',
+                'url': entry.link,
+                'source': 'Yahoo Finance',
+                'published_at': entry.published if 'published' in entry else '',
+                'content': entry.summary if 'summary' in entry else ''
+            })
+        return articles
+    except Exception as e:
+        st.error(f"Error fetching news from Yahoo Finance: {str(e)}")
+        return []
+
+# Fungsi analisis sentimen
+def analyze_sentiment(text):
+    try:
+        # Analisis dengan VADER
+        analyzer = SentimentIntensityAnalyzer()
+        vader_scores = analyzer.polarity_scores(text)
+        
+        # Analisis dengan TextBlob
+        blob = TextBlob(text)
+        polarity = blob.sentiment.polarity
+        subjectivity = blob.sentiment.subjectivity
+        
+        # Gabungkan hasil
+        sentiment = {
+            'vader_compound': vader_scores['compound'],
+            'vader_positive': vader_scores['pos'],
+            'vader_negative': vader_scores['neg'],
+            'vader_neutral': vader_scores['neu'],
+            'textblob_polarity': polarity,
+            'textblob_subjectivity': subjectivity,
+            'combined_score': (vader_scores['compound'] + polarity) / 2
+        }
+        return sentiment
+    except:
+        return {
+            'vader_compound': 0,
+            'vader_positive': 0,
+            'vader_negative': 0,
+            'vader_neutral': 0,
+            'textblob_polarity': 0,
+            'textblob_subjectivity': 0,
+            'combined_score': 0
+        }
+
+# Fungsi untuk menampilkan heatmap sentimen sektoral
+def display_sector_sentiment_heatmap(sector_data):
+    if not sector_data:
+        st.warning("Tidak ada data sentimen sektoral yang tersedia")
+        return
+    
+    # Siapkan data untuk heatmap
+    sectors = list(sector_data.keys())
+    sentiment_scores = [sector_data[sector]['average_sentiment'] for sector in sectors]
+    news_counts = [sector_data[sector]['count'] for sector in sectors]
+    
+    # Buat heatmap
+    fig = go.Figure(data=go.Heatmap(
+        z=[sentiment_scores],
+        x=sectors,
+        y=['Sentimen'],
+        colorscale='RdYlGn',
+        zmin=-1,
+        zmax=1,
+        colorbar=dict(title='Sentimen'),
+        hoverongaps=False,
+        text=[f"Sektor: {sector}<br>Sentimen: {score:.2f}<br>Berita: {count}" 
+              for sector, score, count in zip(sectors, sentiment_scores, news_counts)],
+        hoverinfo='text'
+    ))
+    
+    fig.update_layout(
+        title='Heatmap Sentimen Pasar per Sektor',
+        xaxis_title='Sektor',
+        yaxis_title='',
+        height=400
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+# Fungsi untuk menampilkan news feed
+def display_news_feed():
+    st.subheader("📰 Market News & Sentiment Analysis")
+    
+    # Dapatkan API keys
+    news_api_key = get_news_api_key()
+    fmp_api_key = get_fmp_api_key()
+    
+    # Pilihan sumber berita
+    col1, col2 = st.columns(2)
+    with col1:
+        news_source = st.selectbox("Sumber Berita", ["NewsAPI", "Yahoo Finance"])
+    with col2:
+        if news_source == "NewsAPI" and not news_api_key:
+            st.warning("Masukkan NewsAPI Key di sidebar")
+    
+    # Analisis sentimen tingkat
+    analysis_level = st.radio("Tingkat Analisis", ["Market", "Sektor", "Saham Tertentu"], horizontal=True)
+    
+    # Kumpulkan berita berdasarkan tingkat analisis
+    articles = []
+    sector_sentiment = {}
+    
+    if analysis_level == "Market":
+        query = "stocks OR market OR economy"
+        if news_source == "NewsAPI" and news_api_key:
+            articles = get_news_from_newsapi(query, news_api_key)
+        else:
+            articles = get_news_from_yahoo('^GSPC')  # S&P 500 sebagai proxy market
+    
+    elif analysis_level == "Sektor":
+        # Dapatkan daftar sektor dari FMP
+        sectors = []
+        if fmp_api_key:
+            try:
+                sectors_url = f"https://financialmodelingprep.com/api/v3/sector-performance?apikey={fmp_api_key}"
+                response = requests.get(sectors_url)
+                sectors_data = response.json()
+                sectors = [sector['sector'] for sector in sectors_data]
+            except:
+                sectors = ["Technology", "Financial Services", "Healthcare", "Energy", 
+                          "Consumer Cyclical", "Industrials", "Communication Services"]
+        
+        selected_sector = st.selectbox("Pilih Sektor", sectors)
+        
+        if news_source == "NewsAPI" and news_api_key:
+            articles = get_news_from_newsapi(f"{selected_sector} sector", news_api_key)
+        else:
+            # Untuk Yahoo, coba cari berdasarkan sektor
+            articles = get_news_from_yahoo(selected_sector.split()[0])
+    
+    elif analysis_level == "Saham Tertentu":
+        ticker = st.text_input("Masukkan Kode Saham (contoh: AAPL)", "AAPL")
+        if news_source == "NewsAPI" and news_api_key:
+            articles = get_news_from_newsapi(ticker, news_api_key)
+        else:
+            articles = get_news_from_yahoo(ticker)
+    
+    # Proses dan tampilkan berita
+    if articles:
+        st.subheader(f"Berita Terbaru ({len(articles)} ditemukan)")
+        
+        # Analisis sentimen untuk setiap artikel
+        sentiment_scores = []
+        for article in articles:
+            text = f"{article['title']}. {article['description']}"
+            sentiment = analyze_sentiment(text)
+            article['sentiment'] = sentiment
+            sentiment_scores.append(sentiment['combined_score'])
+        
+        # Hitung rata-rata sentimen
+        avg_sentiment = np.mean(sentiment_scores) if sentiment_scores else 0
+        
+        # Tampilkan metrik sentimen
+        sentiment_color = "green" if avg_sentiment > 0.1 else "red" if avg_sentiment < -0.1 else "gray"
+        st.metric("Rata-rata Sentimen Pasar", 
+                 f"{avg_sentiment:.2f}", 
+                 "Positif" if avg_sentiment > 0.1 else "Negatif" if avg_sentiment < -0.1 else "Netral",
+                 delta_color="off")
+        
+        # Heatmap sentimen sektoral
+        if analysis_level == "Market" and fmp_api_key:
+            try:
+                # Dapatkan performa sektor
+                sectors_url = f"https://financialmodelingprep.com/api/v3/sector-performance?apikey={fmp_api_key}"
+                response = requests.get(sectors_url)
+                sectors_data = response.json()
+                
+                # Analisis sentimen per sektor
+                sector_sentiment = {}
+                for sector in sectors_data:
+                    sector_name = sector['sector']
+                    if news_source == "NewsAPI" and news_api_key:
+                        sector_articles = get_news_from_newsapi(sector_name, news_api_key, page_size=5)
+                    else:
+                        sector_articles = get_news_from_yahoo(sector_name.split()[0])
+                    
+                    sector_scores = []
+                    for article in sector_articles:
+                        text = f"{article['title']}. {article['description']}"
+                        sentiment = analyze_sentiment(text)
+                        sector_scores.append(sentiment['combined_score'])
+                    
+                    avg_sentiment = np.mean(sector_scores) if sector_scores else 0
+                    sector_sentiment[sector_name] = {
+                        'average_sentiment': avg_sentiment,
+                        'count': len(sector_articles)
+                    }
+                
+                display_sector_sentiment_heatmap(sector_sentiment)
+            except Exception as e:
+                st.error(f"Error generating sector sentiment: {str(e)}")
+        
+        # Tampilkan artikel dengan analisis sentimen
+        st.subheader("Berita Terbaru dengan Analisis Sentimen")
+        for article in articles:
+            sentiment = article['sentiment']
+            sentiment_score = sentiment['combined_score']
+            
+            # Tentukan warna berdasarkan sentimen
+            if sentiment_score > 0.2:
+                border_color = "green"
+            elif sentiment_score < -0.2:
+                border_color = "red"
+            else:
+                border_color = "gray"
+            
+            # Tampilkan artikel dalam container
+            with st.container():
+                st.markdown(f"""
+                <div style="
+                    border-left: 5px solid {border_color};
+                    padding: 10px;
+                    margin-bottom: 10px;
+                    background-color: #f8f9fa;
+                    border-radius: 5px;
+                ">
+                    <h4><a href="{article['url']}" target="_blank">{article['title']}</a></h4>
+                    <p>{article['description']}</p>
+                    <div style="font-size: 0.8em; color: #666;">
+                        <b>Sumber:</b> {article['source']} | 
+                        <b>Tanggal:</b> {article['published_at'][:10] if article['published_at'] else 'N/A'} | 
+                        <b>Sentimen:</b> {sentiment_score:.2f} 
+                        <span style="color: {'green' if sentiment_score > 0 else 'red' if sentiment_score < 0 else 'gray'}">
+                        ({'Positif' if sentiment_score > 0.2 else 'Sangat Positif' if sentiment_score > 0.5 else 
+                          'Negatif' if sentiment_score < -0.2 else 'Sangat Negatif' if sentiment_score < -0.5 else 
+                          'Netral'})
+                        </span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+    else:
+        st.warning("Tidak ada berita yang ditemukan. Coba sumber atau kueri yang berbeda.")
+
 # Sidebar menu
 st.sidebar.title("📋 Menu Analisis")
 st.sidebar.header("Konfigurasi API")
@@ -759,7 +1049,8 @@ if uploaded_file:
     if not portfolio_df.empty:
         st.sidebar.success("File portfolio berhasil diupload!")
         st.sidebar.dataframe(portfolio_df[['Stock', 'Ticker']])
-
+        
+#Menu sidebar
 st.sidebar.header("Analisis")
 menu_options = [
     "Dashboard Portfolio",
@@ -767,10 +1058,10 @@ menu_options = [
     "Prediksi Harga Saham",
     "Valuasi Saham",
     "Tracking Modal",
-    "Rekomendasi Pembelian"  # Menu baru
+    "Rekomendasi Pembelian",
+    "Market News & Sentiment"  # Menu baru
 ]
 selected_menu = st.sidebar.selectbox("Pilih Fitur:", menu_options)
-
 # Main content area
 st.title("📈 Stock Analysis Toolkit Pro")
 
@@ -814,3 +1105,6 @@ elif selected_menu == "Rekomendasi Pembelian":
         st.warning("Silakan masukkan API Key FMP di sidebar")
     else:
         st.warning("Silakan upload file portfolio terlebih dahulu")
+        
+elif selected_menu == "Market News & Sentiment":
+    display_news_feed()
