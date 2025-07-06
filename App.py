@@ -7,7 +7,12 @@ from datetime import datetime, timedelta
 import yfinance as yf
 import requests
 from io import BytesIO
-from newsapi import NewsApiClient
+# Perbaikan impor NewsApiClient
+try:
+    from newsapi.newsapi_client import NewsApiClient
+except ImportError:
+    NewsApiClient = None
+    st.warning("NewsAPI client tidak tersedia. Fitur berita akan dibatasi.")
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from textblob import TextBlob
 import feedparser
@@ -773,6 +778,11 @@ def get_news_api_key():
 # Fungsi untuk mendapatkan berita dari NewsAPI
 def get_news_from_newsapi(query, api_key, language='en', page_size=10):
     try:
+        # Periksa ketersediaan modul
+        if NewsApiClient is None:
+            st.warning("NewsAPI client tidak tersedia. Gunakan sumber berita lain.")
+            return []
+            
         newsapi = NewsApiClient(api_key=api_key)
         news = newsapi.get_everything(q=query,
                                      language=language,
@@ -892,10 +902,13 @@ def display_news_feed():
     # Pilihan sumber berita
     col1, col2 = st.columns(2)
     with col1:
-        news_source = st.selectbox("Sumber Berita", ["NewsAPI", "Yahoo Finance"])
+        news_source = st.selectbox("Sumber Berita", ["Yahoo Finance", "NewsAPI"])
     with col2:
-        if news_source == "NewsAPI" and not news_api_key:
-            st.warning("Masukkan NewsAPI Key di sidebar")
+        if news_source == "NewsAPI":
+            if not news_api_key:
+                st.warning("Masukkan NewsAPI Key di sidebar")
+            elif NewsApiClient is None:
+                st.warning("NewsAPI client tidak tersedia")
     
     # Analisis sentimen tingkat
     analysis_level = st.radio("Tingkat Analisis", ["Market", "Sektor", "Saham Tertentu"], horizontal=True)
@@ -906,7 +919,7 @@ def display_news_feed():
     
     if analysis_level == "Market":
         query = "stocks OR market OR economy"
-        if news_source == "NewsAPI" and news_api_key:
+        if news_source == "NewsAPI" and news_api_key and NewsApiClient:
             articles = get_news_from_newsapi(query, news_api_key)
         else:
             articles = get_news_from_yahoo('^GSPC')  # S&P 500 sebagai proxy market
@@ -926,7 +939,7 @@ def display_news_feed():
         
         selected_sector = st.selectbox("Pilih Sektor", sectors)
         
-        if news_source == "NewsAPI" and news_api_key:
+        if news_source == "NewsAPI" and news_api_key and NewsApiClient:
             articles = get_news_from_newsapi(f"{selected_sector} sector", news_api_key)
         else:
             # Untuk Yahoo, coba cari berdasarkan sektor
@@ -934,7 +947,7 @@ def display_news_feed():
     
     elif analysis_level == "Saham Tertentu":
         ticker = st.text_input("Masukkan Kode Saham (contoh: AAPL)", "AAPL")
-        if news_source == "NewsAPI" and news_api_key:
+        if news_source == "NewsAPI" and news_api_key and NewsApiClient:
             articles = get_news_from_newsapi(ticker, news_api_key)
         else:
             articles = get_news_from_yahoo(ticker)
@@ -973,7 +986,7 @@ def display_news_feed():
                 sector_sentiment = {}
                 for sector in sectors_data:
                     sector_name = sector['sector']
-                    if news_source == "NewsAPI" and news_api_key:
+                    if news_source == "NewsAPI" and news_api_key and NewsApiClient:
                         sector_articles = get_news_from_newsapi(sector_name, news_api_key, page_size=5)
                     else:
                         sector_articles = get_news_from_yahoo(sector_name.split()[0])
