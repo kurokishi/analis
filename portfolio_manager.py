@@ -116,7 +116,7 @@ class PortfolioManager:
         valid_mask = (invested > 0)
         profit_pct[valid_mask] = (
             (self.df['Current Value'][valid_mask] / invested[valid_mask] - 1
-        ) * 100
+        ) * 100)
         self.df['Profit/Loss %'] = profit_pct
         
         # Add position weight
