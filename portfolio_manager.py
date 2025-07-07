@@ -7,6 +7,10 @@ class PortfolioManager:
         self.df = portfolio_df.copy()
         self.lot_col = 'Lot Balance'
 
+        # Pastikan kolom numerik dikonversi ke tipe angka
+        self.df[self.lot_col] = pd.to_numeric(self.df[self.lot_col], errors='coerce').fillna(0).astype(int)
+        self.df['Avg Price'] = pd.to_numeric(self.df['Avg Price'], errors='coerce').fillna(0.0)
+
     def update_realtime_prices(self):
         current_prices = []
         for idx, row in self.df.iterrows():
