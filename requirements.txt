@@ -12,3 +12,4 @@ Prophet
 textblob
 vaderSentiment
 feedparser
+requests
