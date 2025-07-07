@@ -59,32 +59,32 @@ if not portfolio_df.empty:
         if menu == "Dashboard Portfolio":
             # [Kode dashboard tetap sama...]
 
-        elif menu == "Rekomendasi Pembelian":
+           elif menu == "Rekomendasi Pembelian":
             # [Kode rekomendasi tetap sama...]
 
-        elif menu == "Prediksi Saham":
+           elif menu == "Prediksi Saham":
             # [Kode prediksi tetap sama...]
 
-        elif menu == "Berita & Sentimen":
+           elif menu == "Berita & Sentimen":
             # PERBAIKAN BAGIAN BERITA
-            try:
-                analyzer = NewsAnalyzer(language='id')
-                with st.spinner('Mengambil berita terbaru...'):
-                    articles = analyzer.fetch_news(news_ticker, max_articles=10)
+                try:
+                    analyzer = NewsAnalyzer(language='id')
+                       with st.spinner('Mengambil berita terbaru...'):
+                            articles = analyzer.fetch_news(news_ticker, max_articles=10)
                 
-                if not articles:
-                    st.warning("Tidak ditemukan berita untuk saham ini.")
-                else:
-                    analyzed = analyzer.analyze_articles(articles)
-                    st.subheader(f"📰 Berita Terkait {news_ticker}")
+                       if not articles:
+                            st.warning("Tidak ditemukan berita untuk saham ini.")
+                       else:
+                            analyzed = analyzer.analyze_articles(articles)
+                            st.subheader(f"📰 Berita Terkait {news_ticker}")
                     
-                    # Ringkasan sentimen
-                    sentiment_summary = analyzer.summarize_sentiment(analyzed)
-                    col1, col2, col3, col4 = st.columns(4)
-                    col1.metric("Total Berita", sentiment_summary['total_articles'])
-                    col2.metric("Positif", sentiment_summary['positive'])
-                    col3.metric("Netral", sentiment_summary['neutral'])
-                    col4.metric("Negatif", sentiment_summary['negative'])
+                            # Ringkasan sentimen
+                            sentiment_summary = analyzer.summarize_sentiment(analyzed)
+                            col1, col2, col3, col4 = st.columns(4)
+                            col1.metric("Total Berita", sentiment_summary['total_articles'])
+                            col2.metric("Positif", sentiment_summary['positive'])
+                            col3.metric("Netral", sentiment_summary['neutral'])
+                            col4.metric("Negatif", sentiment_summary['negative'])
                     
                     for a in analyzed:
                         sentiment = a.get('sentiment_label', 'Netral')
