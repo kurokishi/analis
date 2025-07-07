@@ -13,3 +13,4 @@ textblob
 vaderSentiment
 feedparser
 requests
+arima
