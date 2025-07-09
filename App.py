@@ -791,14 +791,6 @@ def capital_tracking():
         col2.metric("Total Penjualan", f"Rp {total_sales:,.0f}")
         col3.metric("Saldo Saat Ini", f"Rp {current_balance:,.0f}")
 
-# Konfigurasi halaman - tambahkan menu baru
-st.set_page_config(
-    page_title="Stock Analysis Toolkit Pro+",
-    page_icon="📈",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
 # Fungsi untuk mendapatkan NewsAPI key
 def get_news_api_key():
     if 'news_api_key' not in st.session_state:
@@ -1578,42 +1570,6 @@ def calculate_portfolio_risk_score(portfolio_df, api_key):
     
     return portfolio_risk_score
 
-# Di bagian menu "Smart Assistant & Rekomendasi AI" - PERBAIKAN
-elif selected_menu == "Smart Assistant & Rekomendasi AI":
-    st.header("🤖 Smart Assistant & Rekomendasi AI")
-    
-    tab1, tab2, tab3 = st.tabs([
-        "Saham Undervalued", 
-        "Rekomendasi Diversifikasi", 
-        "Skor Risiko Portofolio"
-    ])
-    
-    with tab1:
-        st.subheader("Rekomendasi Saham Undervalued")
-        st.info("Berikut rekomendasi saham yang dianggap undervalued berdasarkan analisis fundamental:")
-        get_undervalued_recommendations(api_key)
-    
-    with tab2:
-        st.subheader("Rekomendasi Diversifikasi Portofolio")
-        st.info("Dapatkan rekomendasi alokasi portofolio berdasarkan profil risiko Anda:")
-        
-        # Dapatkan profil risiko
-        risk_profile = get_risk_profile()
-        
-        if risk_profile and not portfolio_df.empty:
-            # PERBAIKAN: Pastikan data diperbarui sebelum digunakan
-            updated_df = update_portfolio_data(portfolio_df.copy())
-            get_diversification_recommendation(updated_df, risk_profile)
-    
-    with tab3:
-        st.subheader("Analisis Risiko Portofolio")
-        st.info("Skor risiko portofolio Anda berdasarkan karakteristik saham:")
-        
-        if not portfolio_df.empty and api_key:
-            # PERBAIKAN: Pastikan data diperbarui sebelum digunakan
-            updated_df = update_portfolio_data(portfolio_df.copy())
-            calculate_portfolio_risk_score(updated_df, api_key)
-
 # Sidebar menu - hanya satu blok sidebar
 st.sidebar.title("📋 Menu Analisis")
 st.sidebar.header("Konfigurasi API")
@@ -1689,7 +1645,7 @@ elif selected_menu == "Rekomendasi Pembelian":
 elif selected_menu == "Market News & Sentiment":
     display_news_feed()
     
-# PERBAIKAN: Menggunakan nama menu yang konsisten
+# Menu Smart Assistant & Rekomendasi AI yang sudah diperbaiki
 elif selected_menu == "Smart Assistant & Rekomendasi AI":
     st.header("🤖 Smart Assistant & Rekomendasi AI")
     
