@@ -1668,7 +1668,6 @@ elif selected_menu == "Prediksi Harga Saham":
 elif selected_menu == "Valuasi Saham":
     if not portfolio_df.empty and api_key:
         selected_ticker = st.selectbox("Pilih Saham", portfolio_df['Ticker'].tolist())
-        # Hapus suffix .JK untuk FMP
         clean_ticker = selected_ticker.replace('.JK', '')
         stock_valuation(clean_ticker, api_key)
     elif not api_key:
@@ -1690,7 +1689,7 @@ elif selected_menu == "Rekomendasi Pembelian":
 elif selected_menu == "Market News & Sentiment":
     display_news_feed()
     
-# NEW MENU: Smart Assistant & Rekomendasi AI
+# PERBAIKAN: Menggunakan nama menu yang konsisten
 elif selected_menu == "Smart Assistant & Rekomendasi AI":
     st.header("🤖 Smart Assistant & Rekomendasi AI")
     
@@ -1713,11 +1712,17 @@ elif selected_menu == "Smart Assistant & Rekomendasi AI":
         risk_profile = get_risk_profile()
         
         if risk_profile and not portfolio_df.empty:
-            get_diversification_recommendation(portfolio_df, risk_profile)
+            updated_df = update_portfolio_data(portfolio_df.copy())
+            get_diversification_recommendation(updated_df, risk_profile)
     
     with tab3:
         st.subheader("Analisis Risiko Portofolio")
         st.info("Skor risiko portofolio Anda berdasarkan karakteristik saham:")
         
         if not portfolio_df.empty and api_key:
-            calculate_portfolio_risk_score(portfolio_df, api_key)
+            updated_df = update_portfolio_data(portfolio_df.copy())
+            calculate_portfolio_risk_score(updated_df, api_key)
+
+# Tambahkan else untuk menangani kasus yang tidak terduga
+else:
+    st.warning("Menu tidak dikenali")
