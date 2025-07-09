@@ -1422,7 +1422,7 @@ def get_diversification_recommendation(portfolio_df, risk_profile):
     else:
         st.success("Portofolio Anda sudah sesuai dengan alokasi target untuk profil risiko Anda!")
 
-# Fungsi untuk menghitung skor risiko portofolio
+# Fungsi untuk menghitung skor risiko portofolio - PERBAIKAN
 def calculate_portfolio_risk_score(portfolio_df, api_key):
     st.subheader("📊 Skor Risiko Portofolio")
     
@@ -1433,6 +1433,15 @@ def calculate_portfolio_risk_score(portfolio_df, api_key):
     if not api_key:
         st.warning("Silakan masukkan API Key FMP di sidebar untuk fitur ini")
         return 0
+    
+    # PERBAIKAN: Pastikan data portfolio sudah diperbarui
+    if 'Current Value' not in portfolio_df.columns:
+        portfolio_df = update_portfolio_data(portfolio_df.copy())
+        
+        # Jika masih tidak ada kolom 'Current Value', gunakan kolom alternatif
+        if 'Current Value' not in portfolio_df.columns:
+            st.warning("Kolom 'Current Value' tidak ditemukan, menggunakan 'Avg Price' sebagai alternatif")
+            portfolio_df['Current Value'] = portfolio_df['Lot Balance'] * portfolio_df['Avg Price']
     
     # Progress bar
     progress_bar = st.progress(0)
@@ -1529,8 +1538,15 @@ def calculate_portfolio_risk_score(portfolio_df, api_key):
     
     for risk_factor in risk_factors:
         ticker = risk_factor['Ticker']
-        stock_value = portfolio_df[portfolio_df['Ticker'].str.contains(ticker)]['Current Value'].sum()
-        weight = stock_value / total_value
+        # PERBAIKAN: Gunakan regex untuk pencocokan ticker yang lebih fleksibel
+        mask = portfolio_df['Ticker'].str.contains(ticker, regex=False)
+        stock_value = portfolio_df.loc[mask, 'Current Value'].sum()
+        
+        if total_value > 0:
+            weight = stock_value / total_value
+        else:
+            weight = 0
+            
         portfolio_risk_score += risk_factor['Skor Risiko'] * weight
     
     # Tampilkan hasil
@@ -1562,6 +1578,41 @@ def calculate_portfolio_risk_score(portfolio_df, api_key):
     
     return portfolio_risk_score
 
+# Di bagian menu "Smart Assistant & Rekomendasi AI" - PERBAIKAN
+elif selected_menu == "Smart Assistant & Rekomendasi AI":
+    st.header("🤖 Smart Assistant & Rekomendasi AI")
+    
+    tab1, tab2, tab3 = st.tabs([
+        "Saham Undervalued", 
+        "Rekomendasi Diversifikasi", 
+        "Skor Risiko Portofolio"
+    ])
+    
+    with tab1:
+        st.subheader("Rekomendasi Saham Undervalued")
+        st.info("Berikut rekomendasi saham yang dianggap undervalued berdasarkan analisis fundamental:")
+        get_undervalued_recommendations(api_key)
+    
+    with tab2:
+        st.subheader("Rekomendasi Diversifikasi Portofolio")
+        st.info("Dapatkan rekomendasi alokasi portofolio berdasarkan profil risiko Anda:")
+        
+        # Dapatkan profil risiko
+        risk_profile = get_risk_profile()
+        
+        if risk_profile and not portfolio_df.empty:
+            # PERBAIKAN: Pastikan data diperbarui sebelum digunakan
+            updated_df = update_portfolio_data(portfolio_df.copy())
+            get_diversification_recommendation(updated_df, risk_profile)
+    
+    with tab3:
+        st.subheader("Analisis Risiko Portofolio")
+        st.info("Skor risiko portofolio Anda berdasarkan karakteristik saham:")
+        
+        if not portfolio_df.empty and api_key:
+            # PERBAIKAN: Pastikan data diperbarui sebelum digunakan
+            updated_df = update_portfolio_data(portfolio_df.copy())
+            calculate_portfolio_risk_score(updated_df, api_key)
 
 # Sidebar menu - hanya satu blok sidebar
 st.sidebar.title("📋 Menu Analisis")
