@@ -7,6 +7,12 @@ from datetime import datetime, timedelta
 import yfinance as yf
 import requests
 from io import BytesIO
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import make_pipeline
+import random
+
+
 # Perbaikan impor NewsApiClient
 try:
     from newsapi.newsapi_client import NewsApiClient
@@ -1063,6 +1069,483 @@ def display_news_feed():
     else:
         st.warning("Tidak ada berita yang ditemukan. Coba sumber atau kueri yang berbeda.")
 
+# Fungsi untuk mendapatkan rekomendasi saham undervalued
+def get_undervalued_recommendations(api_key):
+    st.subheader("🔍 Saham Undervalued Minggu Ini")
+    
+    if not api_key:
+        st.warning("Silakan masukkan API Key FMP di sidebar untuk mengakses fitur ini")
+        return []
+    
+    try:
+        # Dapatkan daftar saham Indonesia
+        indonesian_stocks_url = f"https://financialmodelingprep.com/api/v3/stock-screener?exchange=IDX&apikey={api_key}"
+        response = requests.get(indonesian_stocks_url)
+        stocks_data = response.json()
+        
+        if not stocks_data:
+            st.warning("Tidak dapat menemukan data saham Indonesia")
+            return []
+        
+        # Filter saham dengan market cap > 1T
+        filtered_stocks = [
+            stock for stock in stocks_data 
+            if stock.get('marketCap', 0) > 1000000000000
+        ]
+        
+        # Batasi jumlah saham untuk efisiensi
+        selected_stocks = random.sample(filtered_stocks, min(20, len(filtered_stocks)))
+        
+        undervalued_stocks = []
+        
+        # Progress bar
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        for i, stock in enumerate(selected_stocks):
+            ticker = stock['symbol']
+            status_text.text(f"Menganalisis {ticker} ({i+1}/{len(selected_stocks)})...")
+            
+            # Dapatkan data valuasi
+            fmp_data = get_fmp_data(ticker, api_key)
+            if not fmp_data:
+                continue
+                
+            ratios = fmp_data.get('ratios', {})
+            quote = fmp_data.get('quote', {})
+            
+            # Kriteria undervalued
+            per = ratios.get('priceEarningsRatio', 100)
+            pbv = ratios.get('priceToBookRatio', 10)
+            dividend_yield = ratios.get('dividendYield', 0) * 100
+            roe = ratios.get('returnOnEquity', 0) * 100
+            
+            # Hitung skor undervalued
+            score = 0
+            
+            # PER rendah lebih baik
+            if per < 10:
+                score += 3
+            elif per < 15:
+                score += 2
+            elif per < 20:
+                score += 1
+                
+            # PBV rendah lebih baik
+            if pbv < 1:
+                score += 3
+            elif pbv < 1.5:
+                score += 2
+            elif pbv < 2:
+                score += 1
+                
+            # Dividend yield tinggi lebih baik
+            if dividend_yield > 5:
+                score += 3
+            elif dividend_yield > 3:
+                score += 2
+            elif dividend_yield > 1:
+                score += 1
+                
+            # ROE tinggi lebih baik
+            if roe > 20:
+                score += 3
+            elif roe > 15:
+                score += 2
+            elif roe > 10:
+                score += 1
+                
+            # Tambahkan jika memenuhi kriteria
+            if score >= 8:  # Threshold untuk undervalued
+                undervalued_stocks.append({
+                    'Ticker': ticker,
+                    'Nama': stock.get('companyName', ticker),
+                    'PER': per,
+                    'PBV': pbv,
+                    'Dividend Yield': dividend_yield,
+                    'ROE': roe,
+                    'Skor': score,
+                    'Harga': quote.get('price', 0)
+                })
+            
+            progress_bar.progress((i+1)/len(selected_stocks))
+        
+        status_text.text("Analisis selesai!")
+        
+        if undervalued_stocks:
+            # Urutkan berdasarkan skor tertinggi
+            undervalued_stocks.sort(key=lambda x: x['Skor'], reverse=True)
+            
+            # Tampilkan hasil
+            st.success(f"Ditemukan {len(undervalued_stocks)} saham undervalued!")
+            
+            # Tampilkan dalam tabel
+            df = pd.DataFrame(undervalued_stocks)
+            st.dataframe(df.style.format({
+                'PER': '{:.2f}',
+                'PBV': '{:.2f}',
+                'Dividend Yield': '{:.2f}%',
+                'ROE': '{:.2f}%',
+                'Harga': 'Rp {:,.0f}'
+            }).background_gradient(subset=['Skor'], cmap='YlGn'), use_container_width=True)
+            
+            # Tampilkan grafik perbandingan
+            st.subheader("Perbandingan Saham Undervalued")
+            fig = px.bar(df, x='Nama', y='Skor', color='Skor',
+                         title='Skor Undervalued Saham',
+                         labels={'Nama': 'Saham', 'Skor': 'Skor Undervalued'})
+            st.plotly_chart(fig, use_container_width=True)
+            
+            return undervalued_stocks
+        else:
+            st.warning("Tidak ditemukan saham yang memenuhi kriteria undervalued minggu ini")
+            return []
+            
+    except Exception as e:
+        st.error(f"Error dalam mendapatkan rekomendasi saham undervalued: {str(e)}")
+        return []
+
+# Fungsi untuk menentukan profil risiko pengguna
+def get_risk_profile():
+    st.subheader("📝 Profil Risiko Investor")
+    
+    if 'risk_profile' not in st.session_state:
+        with st.form("risk_profile_form"):
+            st.write("Silakan jawab pertanyaan berikut untuk menentukan profil risiko:")
+            
+            q1 = st.radio(
+                "1. Apa tujuan utama investasi Anda?",
+                options=[
+                    ("Pelestarian modal (risiko rendah)", 1),
+                    ("Pertumbuhan modal moderat", 2),
+                    ("Pertumbuhan modal agresif", 3),
+                    ("Pendapatan spekulatif tinggi", 4)
+                ],
+                format_func=lambda x: x[0]
+            )[1]
+            
+            q2 = st.radio(
+                "2. Berapa lama horizon investasi Anda?",
+                options=[
+                    ("Kurang dari 1 tahun", 1),
+                    ("1-3 tahun", 2),
+                    ("3-5 tahun", 3),
+                    ("Lebih dari 5 tahun", 4)
+                ],
+                format_func=lambda x: x[0]
+            )[1]
+            
+            q3 = st.radio(
+                "3. Bagaimana reaksi Anda terhadap penurunan 20% portofolio dalam 1 bulan?",
+                options=[
+                    ("Jual semua investasi", 1),
+                    ("Jual sebagian", 2),
+                    ("Tahan dan pantau", 3),
+                    ("Beli lebih banyak", 4)
+                ],
+                format_func=lambda x: x[0]
+            )[1]
+            
+            q4 = st.radio(
+                "4. Pengalaman investasi Anda?",
+                options=[
+                    ("Pemula (baru mulai)", 1),
+                    ("Sedang (1-3 tahun)", 2),
+                    ("Berpengalaman (3-5 tahun)", 3),
+                    ("Sangat berpengalaman (>5 tahun)", 4)
+                ],
+                format_func=lambda x: x[0]
+            )[1]
+            
+            submitted = st.form_submit_button("Tentukan Profil Risiko")
+            
+            if submitted:
+                total_score = q1 + q2 + q3 + q4
+                
+                if total_score <= 6:
+                    profile = "Konservatif"
+                elif total_score <= 10:
+                    profile = "Moderat"
+                elif total_score <= 14:
+                    profile = "Agresif"
+                else:
+                    profile = "Sangat Agresif"
+                
+                st.session_state.risk_profile = profile
+                st.success(f"Profil risiko Anda: {profile}")
+                st.rerun()
+    
+    if 'risk_profile' in st.session_state:
+        st.info(f"Profil risiko saat ini: **{st.session_state.risk_profile}**")
+        if st.button("Ubah Profil Risiko"):
+            del st.session_state.risk_profile
+            st.rerun()
+    
+    return st.session_state.get('risk_profile', None)
+
+# Fungsi untuk memberikan rekomendasi diversifikasi
+def get_diversification_recommendation(portfolio_df, risk_profile):
+    st.subheader("🌐 Rekomendasi Diversifikasi Portofolio")
+    
+    if not risk_profile:
+        st.warning("Silakan tentukan profil risiko Anda terlebih dahulu")
+        return
+    
+    if portfolio_df.empty:
+        st.warning("Silakan upload portofolio Anda terlebih dahulu")
+        return
+    
+    # Standar alokasi berdasarkan profil risiko
+    allocation_guidelines = {
+        "Konservatif": {
+            "Saham Blue Chip": 70,
+            "Saham Pendapatan": 20,
+            "Reksa Dana Pendapatan Tetap": 10,
+            "Saham Growth": 0,
+            "Saham Spekulatif": 0
+        },
+        "Moderat": {
+            "Saham Blue Chip": 50,
+            "Saham Pendapatan": 20,
+            "Reksa Dana Pendapatan Tetap": 10,
+            "Saham Growth": 15,
+            "Saham Spekulatif": 5
+        },
+        "Agresif": {
+            "Saham Blue Chip": 30,
+            "Saham Pendapatan": 10,
+            "Reksa Dana Pendapatan Tetap": 5,
+            "Saham Growth": 40,
+            "Saham Spekulatif": 15
+        },
+        "Sangat Agresif": {
+            "Saham Blue Chip": 20,
+            "Saham Pendapatan": 5,
+            "Reksa Dana Pendapatan Tetap": 0,
+            "Saham Growth": 50,
+            "Saham Spekulatif": 25
+        }
+    }
+    
+    # Klasifikasi saham (sederhana)
+    blue_chips = ["BBCA", "BBRI", "BBNI", "BMRI", "TLKM", "EXCL", "ASII"]
+    income_stocks = ["UNVR", "ICBP", "MYOR", "INDF", "SMGR"]
+    growth_stocks = ["GOTO", "ARTO", "BRIS", "ACES", "EMTK"]
+    
+    # Kategorikan saham di portofolio
+    portfolio_df['Kategori'] = "Lainnya"
+    
+    for idx, row in portfolio_df.iterrows():
+        ticker = row['Ticker'].replace('.JK', '')
+        
+        if ticker in blue_chips:
+            portfolio_df.at[idx, 'Kategori'] = "Saham Blue Chip"
+        elif ticker in income_stocks:
+            portfolio_df.at[idx, 'Kategori'] = "Saham Pendapatan"
+        elif ticker in growth_stocks:
+            portfolio_df.at[idx, 'Kategori'] = "Saham Growth"
+        else:
+            portfolio_df.at[idx, 'Kategori'] = "Saham Spekulatif"
+    
+    # Hitung alokasi saat ini
+    total_value = portfolio_df['Current Value'].sum()
+    current_allocation = portfolio_df.groupby('Kategori')['Current Value'].sum() / total_value * 100
+    
+    # Dapatkan alokasi target
+    target_allocation = allocation_guidelines[risk_profile]
+    
+    # Tampilkan perbandingan
+    st.write(f"### Alokasi Portofolio Saat Ini vs Rekomendasi ({risk_profile})")
+    
+    # Siapkan data untuk visualisasi
+    allocation_data = []
+    for category in target_allocation:
+        current_pct = current_allocation.get(category, 0)
+        target_pct = target_allocation[category]
+        allocation_data.append({
+            'Kategori': category,
+            'Saat Ini': current_pct,
+            'Target': target_pct
+        })
+    
+    df_allocation = pd.DataFrame(allocation_data)
+    
+    # Tampilkan grafik
+    fig = px.bar(df_allocation, x='Kategori', y=['Saat Ini', 'Target'],
+                 barmode='group', title='Alokasi Portofolio Saat Ini vs Target')
+    fig.update_layout(yaxis_title='Persentase (%)')
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Rekomendasi penyesuaian
+    st.subheader("Rekomendasi Penyesuaian")
+    
+    recommendations = []
+    for category in target_allocation:
+        current_pct = current_allocation.get(category, 0)
+        target_pct = target_allocation[category]
+        difference = target_pct - current_pct
+        
+        if difference > 5:  # Hanya rekomendasikan jika perbedaan signifikan
+            action = "Tambah alokasi"
+        elif difference < -5:
+            action = "Kurangi alokasi"
+        else:
+            continue
+        
+        recommendations.append({
+            'Kategori': category,
+            'Saat Ini': f"{current_pct:.1f}%",
+            'Target': f"{target_pct:.1f}%",
+            'Aksi': action,
+            'Jumlah': f"{abs(difference):.1f}%"
+        })
+    
+    if recommendations:
+        df_rec = pd.DataFrame(recommendations)
+        st.dataframe(df_rec, use_container_width=True)
+    else:
+        st.success("Portofolio Anda sudah sesuai dengan alokasi target untuk profil risiko Anda!")
+
+# Fungsi untuk menghitung skor risiko portofolio
+def calculate_portfolio_risk_score(portfolio_df, api_key):
+    st.subheader("📊 Skor Risiko Portofolio")
+    
+    if portfolio_df.empty:
+        st.warning("Silakan upload portofolio Anda terlebih dahulu")
+        return 0
+    
+    if not api_key:
+        st.warning("Silakan masukkan API Key FMP di sidebar untuk fitur ini")
+        return 0
+    
+    # Progress bar
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    # Faktor risiko
+    risk_factors = []
+    
+    for i, (idx, row) in enumerate(portfolio_df.iterrows()):
+        ticker = row['Ticker'].replace('.JK', '')
+        status_text.text(f"Menganalisis risiko {ticker} ({i+1}/{len(portfolio_df)})...")
+        
+        try:
+            fmp_data = get_fmp_data(ticker, api_key)
+            if not fmp_data:
+                continue
+                
+            ratios = fmp_data.get('ratios', {})
+            profile = fmp_data.get('profile', {})
+            quote = fmp_data.get('quote', {})
+            
+            # Faktor risiko
+            beta = profile.get('beta', 1.0)
+            vol = quote.get('change', 0)  # Volatilitas sederhana
+            per = ratios.get('priceEarningsRatio', 15)
+            der = ratios.get('debtEquityRatio', 0.5)
+            size = profile.get('mktCap', 1000000000000)  # Market cap
+            
+            # Hitung skor risiko per saham (0-10, semakin tinggi semakin berisiko)
+            risk_score = 0
+            
+            # Beta (1.0 = pasar, >1.0 lebih berisiko)
+            if beta > 1.5:
+                risk_score += 3
+            elif beta > 1.2:
+                risk_score += 2
+            elif beta > 1.0:
+                risk_score += 1
+                
+            # Volatilitas
+            if abs(vol) > 5:
+                risk_score += 3
+            elif abs(vol) > 3:
+                risk_score += 2
+            elif abs(vol) > 1:
+                risk_score += 1
+                
+            # PER tinggi -> lebih berisiko
+            if per > 25:
+                risk_score += 2
+            elif per > 20:
+                risk_score += 1
+                
+            # DER tinggi -> lebih berisiko
+            if der > 2.0:
+                risk_score += 3
+            elif der > 1.5:
+                risk_score += 2
+            elif der > 1.0:
+                risk_score += 1
+                
+            # Ukuran perusahaan (kecil -> lebih berisiko)
+            if size < 500000000000:  # <500M
+                risk_score += 3
+            elif size < 1000000000000:  # <1T
+                risk_score += 2
+            elif size < 5000000000000:  # <5T
+                risk_score += 1
+                
+            risk_factors.append({
+                'Ticker': ticker,
+                'Beta': beta,
+                'Volatilitas': vol,
+                'PER': per,
+                'DER': der,
+                'Market Cap': size,
+                'Skor Risiko': min(10, risk_score)  # Batasi maks 10
+            })
+            
+            progress_bar.progress((i+1)/len(portfolio_df))
+            
+        except Exception as e:
+            st.error(f"Error menganalisis {ticker}: {str(e)}")
+    
+    status_text.text("Analisis risiko selesai!")
+    
+    if not risk_factors:
+        st.warning("Tidak dapat menghitung skor risiko")
+        return 0
+    
+    # Hitung skor risiko portofolio tertimbang
+    total_value = portfolio_df['Current Value'].sum()
+    portfolio_risk_score = 0
+    
+    for risk_factor in risk_factors:
+        ticker = risk_factor['Ticker']
+        stock_value = portfolio_df[portfolio_df['Ticker'].str.contains(ticker)]['Current Value'].sum()
+        weight = stock_value / total_value
+        portfolio_risk_score += risk_factor['Skor Risiko'] * weight
+    
+    # Tampilkan hasil
+    st.metric("Skor Risiko Portofolio", f"{portfolio_risk_score:.1f}/10.0", 
+             "Rendah" if portfolio_risk_score < 3 else 
+             "Sedang" if portfolio_risk_score < 6 else 
+             "Tinggi" if portfolio_risk_score < 8 else "Sangat Tinggi")
+    
+    # Interpretasi
+    if portfolio_risk_score < 3:
+        st.success("Portofolio Anda memiliki risiko rendah. Cocok untuk investor konservatif.")
+    elif portfolio_risk_score < 6:
+        st.info("Portofolio Anda memiliki risiko sedang. Seimbang antara risiko dan potensi return.")
+    elif portfolio_risk_score < 8:
+        st.warning("Portofolio Anda memiliki risiko tinggi. Cocok untuk investor agresif dengan toleransi risiko tinggi.")
+    else:
+        st.error("Portofolio Anda memiliki risiko sangat tinggi. Pertimbangkan untuk diversifikasi lebih banyak.")
+    
+    # Tampilkan detail saham
+    st.subheader("Detail Risiko Saham")
+    df_risk = pd.DataFrame(risk_factors)
+    st.dataframe(df_risk.style.format({
+        'Beta': '{:.2f}',
+        'Volatilitas': '{:.2f}%',
+        'PER': '{:.2f}',
+        'DER': '{:.2f}',
+        'Market Cap': 'Rp {:,.0f}'
+    }).background_gradient(subset=['Skor Risiko'], cmap='YlOrRd'), use_container_width=True)
+    
+    return portfolio_risk_score
+
 # Sidebar menu
 st.sidebar.title("📋 Menu Analisis")
 st.sidebar.header("Konfigurasi API")
@@ -1078,8 +1561,31 @@ if uploaded_file:
         st.sidebar.success("File portfolio berhasil diupload!")
         st.sidebar.dataframe(portfolio_df[['Stock', 'Ticker']])
         
-#Menu sidebar
-st.sidebar.header("Analisis")
+# Konfigurasi halaman
+st.set_page_config(
+    page_title="Stock Analysis Toolkit Pro+",
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Sidebar menu
+st.sidebar.title("📋 Menu Analisis")
+st.sidebar.header("Konfigurasi API")
+api_key = get_fmp_api_key()
+news_api_key = get_news_api_key()  # Tetap pertahankan ini
+
+st.sidebar.header("Portfolio")
+uploaded_file = st.sidebar.file_uploader("Upload Portfolio", type=["csv", "xlsx"])
+
+portfolio_df = pd.DataFrame()
+if uploaded_file:
+    portfolio_df = process_uploaded_file(uploaded_file)
+    if not portfolio_df.empty:
+        st.sidebar.success("File portfolio berhasil diupload!")
+        st.sidebar.dataframe(portfolio_df[['Stock', 'Ticker']])
+        
+# Update menu options
 menu_options = [
     "Dashboard Portfolio",
     "Analisis DCA",
@@ -1087,11 +1593,13 @@ menu_options = [
     "Valuasi Saham",
     "Tracking Modal",
     "Rekomendasi Pembelian",
-    "Market News & Sentiment"  # Menu baru
+    "Market News & Sentiment",
+    "Smart Assistant & Rekomendasi AI"  # Menu baru
 ]
 selected_menu = st.sidebar.selectbox("Pilih Fitur:", menu_options)
+
 # Main content area
-st.title("📈 Stock Analysis Toolkit Pro")
+st.title("📈 Stock Analysis Toolkit Pro+")
 
 if selected_menu == "Dashboard Portfolio":
     if not portfolio_df.empty:
@@ -1136,3 +1644,35 @@ elif selected_menu == "Rekomendasi Pembelian":
         
 elif selected_menu == "Market News & Sentiment":
     display_news_feed()
+    
+# NEW MENU: Smart Assistant & Rekomendasi AI
+elif selected_menu == "Smart Assistant & Rekomendasi AI":
+    st.header("🤖 Smart Assistant & Rekomendasi AI")
+    
+    tab1, tab2, tab3 = st.tabs([
+        "Saham Undervalued", 
+        "Rekomendasi Diversifikasi", 
+        "Skor Risiko Portofolio"
+    ])
+    
+    with tab1:
+        st.subheader("Rekomendasi Saham Undervalued")
+        st.info("Berikut rekomendasi saham yang dianggap undervalued berdasarkan analisis fundamental:")
+        get_undervalued_recommendations(api_key)
+    
+    with tab2:
+        st.subheader("Rekomendasi Diversifikasi Portofolio")
+        st.info("Dapatkan rekomendasi alokasi portofolio berdasarkan profil risiko Anda:")
+        
+        # Dapatkan profil risiko
+        risk_profile = get_risk_profile()
+        
+        if risk_profile and not portfolio_df.empty:
+            get_diversification_recommendation(portfolio_df, risk_profile)
+    
+    with tab3:
+        st.subheader("Analisis Risiko Portofolio")
+        st.info("Skor risiko portofolio Anda berdasarkan karakteristik saham:")
+        
+        if not portfolio_df.empty and api_key:
+            calculate_portfolio_risk_score(portfolio_df, api_key)
