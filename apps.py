@@ -12,6 +12,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import make_pipeline
 import random
 import base64
+import time 
 
 # Perbaikan impor NewsApiClient
 try:
@@ -281,19 +282,56 @@ def get_news_api_key():
 # Fungsi untuk mendapatkan data real-time
 def get_realtime_data(ticker):
     try:
+        # Tambahkan penundaan untuk menghindari rate limit
+        time.sleep(0.5)  # Delay 500ms antara permintaan
+        
         stock = yf.Ticker(ticker)
-        hist = stock.history(period="1d", interval="5m")
+        
+        # Coba dapatkan data real-time
+        try:
+            hist = stock.history(period="1d", interval="5m")
+        except Exception as e:
+            # Fallback ke data harian jika intraday gagal
+            hist = stock.history(period="1d", interval="1d")
+        
         if hist.empty:
-            return None, None, None, None
+            # Coba gunakan data historis terbaru sebagai fallback
+            hist = stock.history(period="1d")
+            if hist.empty:
+                return None, None, None, None
         
         last_price = hist['Close'].iloc[-1]
-        prev_close = stock.info.get('previousClose', last_price)
+        
+        # Dapatkan harga penutupan sebelumnya
+        try:
+            prev_close = stock.info.get('previousClose', last_price)
+        except:
+            # Jika gagal, gunakan harga pertama hari ini
+            prev_close = hist['Open'].iloc[0] if not hist.empty else last_price
+        
         change = last_price - prev_close
         change_percent = (change / prev_close) * 100
         
         return last_price, change, change_percent, hist
+        
     except Exception as e:
-        st.error(f"Error fetching real-time data: {str(e)}")
+        # Tangani error khusus rate limit
+        if "Too Many Requests" in str(e) or "429" in str(e):
+            st.warning("Yahoo Finance rate limit terlampaui. Data mungkin tidak real-time.")
+            # Coba dapatkan data historis sebagai fallback
+            try:
+                stock = yf.Ticker(ticker)
+                hist = stock.history(period="1d")
+                if not hist.empty:
+                    last_price = hist['Close'].iloc[-1]
+                    prev_close = hist['Close'].iloc[-2] if len(hist) > 1 else hist['Open'].iloc[0]
+                    change = last_price - prev_close
+                    change_percent = (change / prev_close) * 100
+                    return last_price, change, change_percent, hist
+            except:
+                pass
+        
+        st.error(f"Error fetching data: {str(e)}")
         return None, None, None, None
 
 # Fungsi untuk memproses file upload
@@ -373,8 +411,22 @@ def update_portfolio_data(portfolio_df):
     current_prices = []
     for idx, row in df.iterrows():
         ticker = row['Ticker']
-        last_price, _, _, _ = get_realtime_data(ticker)
-        current_prices.append(last_price if last_price is not None else row['Avg Price'])
+        
+        # Gunakan cache jika tersedia
+        cache_key = f"price_{ticker}"
+        if cache_key in st.session_state:
+            last_price = st.session_state[cache_key]
+        else:
+            last_price, _, _, _ = get_realtime_data(ticker)
+            # Simpan dalam cache selama 60 detik
+            st.session_state[cache_key] = last_price
+            st.session_state[f"{cache_key}_time"] = time.time()
+        
+        # Jika data real-time gagal, gunakan harga rata-rata sebagai fallback
+        if last_price is None:
+            last_price = row['Avg Price']
+        
+        current_prices.append(last_price)
     
     df['Current Price'] = current_prices
     df['Current Value'] = df[lot_balance_col] * df['Current Price']
@@ -382,6 +434,20 @@ def update_portfolio_data(portfolio_df):
     df['Profit/Loss %'] = (df['Current Value'] / (df[lot_balance_col] * df['Avg Price']) - 1) * 100
     
     return df
+
+# Tambahkan fungsi untuk membersihkan cache
+def clear_price_cache():
+    # Hapus cache yang lebih lama dari 60 detik
+    current_time = time.time()
+    keys_to_delete = []
+    for key in st.session_state.keys():
+        if key.startswith("price_") and f"{key}_time" in st.session_state:
+            if current_time - st.session_state[f"{key}_time"] > 60:  # 60 detik
+                keys_to_delete.append(key)
+                keys_to_delete.append(f"{key}_time")
+    
+    for key in keys_to_delete:
+        del st.session_state[key]
 
 # Fungsi analisis DCA dengan data real-time - DIUBAH UNTUK RESPONSIF
 def dca_analysis(df):
