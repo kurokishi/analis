@@ -1617,6 +1617,168 @@ def get_diversification_recommendation(portfolio_df, risk_profile):
         st.dataframe(df_rec, use_container_width=True)
     else:
         st.success("Portofolio Anda sudah sesuai dengan alokasi target untuk profil risiko Anda!")
+# ==========================================
+# FUNGSI KOMPARASI SAHAM BARU
+# ==========================================
+
+def stock_comparison(api_key):
+    st.subheader("📊 Komparasi Saham")
+    st.info("Bandingkan 2-5 saham berdasarkan metrik fundamental dan sentimen pasar")
+    
+    # Input ticker saham
+    tickers_input = st.text_input(
+        "Masukkan kode saham (pisahkan dengan koma, contoh: BBCA,BBRI,TLKM):",
+        "BBCA.JK,BBRI.JK"
+    )
+    
+    # Proses input
+    tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
+    
+    # Validasi jumlah saham
+    if len(tickers) < 2:
+        st.warning("Masukkan minimal 2 saham untuk dibandingkan")
+        return
+    if len(tickers) > 5:
+        st.warning("Maksimal 5 saham yang dapat dibandingkan")
+        tickers = tickers[:5]
+    
+    if not api_key:
+        st.warning("Silakan masukkan API Key FMP di sidebar untuk fitur ini")
+        return
+    
+    # Kumpulkan data untuk setiap saham
+    comparison_data = []
+    
+    with st.spinner("Mengumpulkan data saham..."):
+        progress_bar = st.progress(0)
+        for i, ticker in enumerate(tickers):
+            clean_ticker = ticker.replace('.JK', '')
+            
+            # Dapatkan data fundamental
+            fmp_data = get_fmp_data(clean_ticker, api_key)
+            
+            if not fmp_data:
+                st.warning(f"Data tidak ditemukan untuk {ticker}")
+                continue
+            
+            # Dapatkan data sentimen
+            sentiment_score = get_stock_sentiment(ticker)
+            
+            # Ekstrak metrik penting
+            profile = fmp_data.get('profile', {})
+            ratios = fmp_data.get('ratios', {})
+            growth = fmp_data.get('growth', {})
+            quote = fmp_data.get('quote', {})
+            
+            comparison_data.append({
+                "Ticker": ticker,
+                "Nama": profile.get('companyName', ticker),
+                "Harga": quote.get('price', 0),
+                "PER": ratios.get('priceEarningsRatio', 0),
+                "PBV": ratios.get('priceToBookRatio', 0),
+                "ROE": ratios.get('returnOnEquity', 0) * 100,
+                "Pertumbuhan Pendapatan": growth.get('growthRevenue', 0) * 100,
+                "Sentimen": sentiment_score,
+                "Dividen Yield": ratios.get('dividendYield', 0) * 100
+            })
+            
+            progress_bar.progress((i+1)/len(tickers))
+    
+    if not comparison_data:
+        st.error("Tidak ada data yang berhasil dikumpulkan")
+        return
+    
+    # Tampilkan tabel perbandingan
+    st.subheader("Perbandingan Metrik Fundamental")
+    df = pd.DataFrame(comparison_data)
+    
+    # Format kolom
+    formatted_df = df.copy()
+    for col in ["Harga", "PER", "PBV", "ROE", "Pertumbuhan Pendapatan", "Dividen Yield"]:
+        if col == "Harga":
+            formatted_df[col] = formatted_df[col].apply(lambda x: f"Rp {x:,.0f}" if pd.notnull(x) else "-")
+        elif col == "Sentimen":
+            formatted_df[col] = formatted_df[col].apply(lambda x: f"{x:.2f}")
+        else:
+            formatted_df[col] = formatted_df[col].apply(lambda x: f"{x:.2f}%" if pd.notnull(x) else "-")
+    
+    st.dataframe(formatted_df, use_container_width=True)
+    
+    # Grafik perbandingan
+    st.subheader("Grafik Perbandingan")
+    
+    # Pilih metrik untuk grafik
+    metrics = st.multiselect(
+        "Pilih metrik untuk ditampilkan:",
+        options=["PER", "PBV", "ROE", "Pertumbuhan Pendapatan", "Sentimen", "Dividen Yield"],
+        default=["PER", "PBV", "ROE"]
+    )
+    
+    if not metrics:
+        st.warning("Pilih minimal satu metrik")
+        return
+    
+    # Buat grafik untuk setiap metrik
+    for metric in metrics:
+        fig = px.bar(
+            df,
+            x="Ticker",
+            y=metric,
+            color="Ticker",
+            title=f"Perbandingan {metric}",
+            text=df[metric].apply(lambda x: f"{x:.2f}{'%' if metric != 'Sentimen' else ''}"),
+            labels={"value": metric}
+        )
+        
+        # Atur warna berdasarkan nilai
+        if metric == "Sentimen":
+            fig.update_traces(marker_color=df[metric].apply(
+                lambda x: "green" if x > 0.3 else "red" if x < -0.3 else "gray"
+            ))
+        
+        fig.update_layout(
+            showlegend=False,
+            yaxis_title=metric,
+            xaxis_title="Saham"
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+    
+    # Analisis komparatif
+    st.subheader("Analisis Komparatif")
+    
+    # Temukan saham dengan nilai terbaik untuk setiap metrik
+    best_stocks = {}
+    for metric in metrics:
+        if metric == "PER":  # PER rendah lebih baik
+            best = df.loc[df[metric].idxmin()]["Ticker"]
+            best_stocks[metric] = {"saham": best, "nilai": df[metric].min()}
+        else:  # Metrik lain: nilai tinggi lebih baik
+            best = df.loc[df[metric].idxmax()]["Ticker"]
+            best_stocks[metric] = {"saham": best, "nilai": df[metric].max()}
+    
+    # Tampilkan hasil analisis
+    analysis_result = []
+    for metric, data in best_stocks.items():
+        analysis_result.append({
+            "Metrik": metric,
+            "Saham Terbaik": data["saham"],
+            "Nilai": f"{data['nilai']:.2f}{'%' if metric != 'Sentimen' else ''}"
+        })
+    
+    st.dataframe(pd.DataFrame(analysis_result), use_container_width=True)
+
+def get_stock_sentiment(ticker):
+    """Hitung skor sentimen rata-rata untuk sebuah saham"""
+    articles = get_news_from_yahoo(ticker)
+    sentiment_scores = []
+    
+    for article in articles[:5]:  # Gunakan 5 berita terbaru
+        text = f"{article['title']}. {article['description']}"
+        sentiment = analyze_sentiment(text)
+        sentiment_scores.append(sentiment['combined_score'])
+    
+    return np.mean(sentiment_scores) if sentiment_scores else 0
 
 # Fungsi untuk menghitung skor risiko portofolio - PERBAIKAN
 def calculate_portfolio_risk_score(portfolio_df, api_key):
@@ -1799,7 +1961,8 @@ menu_options = [
     "Tracking Modal",
     "Rekomendasi Pembelian",
     "Market News & Sentiment",
-    "Smart Assistant & Rekomendasi AI"
+    "Smart Assistant & Rekomendasi AI",
+    "Komparasi Saham"  # Fitur baru ditambahkan
 ]
 selected_menu = st.sidebar.selectbox("Pilih Fitur:", menu_options)
 
@@ -1929,5 +2092,8 @@ elif selected_menu == "Smart Assistant & Rekomendasi AI":
             calculate_portfolio_risk_score(updated_df, api_key)
 
 # Tambahkan else untuk menangani kasus yang tidak terduga
-else:
-    st.warning("Menu tidak dikenali")
+elif selected_menu == "Komparasi Saham":
+    if api_key:
+        stock_comparison(api_key)
+    else:
+        st.warning("Silakan masukkan API Key FMP di sidebar")
