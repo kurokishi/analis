@@ -1616,6 +1616,15 @@ def get_diversification_recommendation(portfolio_df, risk_profile):
         }
     }
     
+    # PERBAIKAN: Tambahkan contoh saham untuk setiap kategori
+    contoh_saham = {
+        "Saham Blue Chip": "BBCA, BBRI, BBNI, BMRI, TLKM",
+        "Saham Pendapatan": "UNVR, ICBP, MYOR, INDF, SMGR",
+        "Saham Growth": "GOTO, ARTO, BRIS, ACES, EMTK",
+        "Saham Spekulatif": "Saham dengan kapitalisasi kecil atau sektor volatile",
+        "Reksa Dana Pendapatan Tetap": "Reksa Dana Obligasi"
+    }
+    
     # Klasifikasi saham (sederhana)
     blue_chips = ["BBCA", "BBRI", "BBNI", "BMRI", "TLKM", "EXCL", "ASII"]
     income_stocks = ["UNVR", "ICBP", "MYOR", "INDF", "SMGR"]
@@ -1665,7 +1674,7 @@ def get_diversification_recommendation(portfolio_df, risk_profile):
     fig.update_layout(yaxis_title='Persentase (%)')
     st.plotly_chart(fig, use_container_width=True)
     
-    # Rekomendasi penyesuaian
+    # Rekomendasi penyesuaian - PERBAIKAN: tambahkan kolom contoh saham
     st.subheader("Rekomendasi Penyesuaian")
     
     recommendations = []
@@ -1686,12 +1695,23 @@ def get_diversification_recommendation(portfolio_df, risk_profile):
             'Saat Ini': f"{current_pct:.1f}%",
             'Target': f"{target_pct:.1f}%",
             'Aksi': action,
-            'Jumlah': f"{abs(difference):.1f}%"
+            'Jumlah': f"{abs(difference):.1f}%",
+            'Contoh Saham': contoh_saham.get(category, "")  # Tambahkan kolom baru
         })
     
     if recommendations:
         df_rec = pd.DataFrame(recommendations)
         st.dataframe(df_rec, use_container_width=True)
+        
+        # PERBAIKAN: Tampilkan penjelasan tambahan
+        st.info("""
+        **Keterangan:**
+        - **Saham Blue Chip:** Saham perusahaan besar dengan kinerja stabil (contoh: BBCA, BBRI)
+        - **Saham Pendapatan:** Saham dengan dividen tinggi (contoh: UNVR, ICBP)
+        - **Saham Growth:** Saham dengan potensi pertumbuhan tinggi (contoh: GOTO, ARTO)
+        - **Saham Spekulatif:** Saham dengan risiko tinggi tetapi potensi return tinggi
+        - **Reksa Dana Pendapatan Tetap:** Investasi dalam instrumen pendapatan tetap
+        """)
     else:
         st.success("Portofolio Anda sudah sesuai dengan alokasi target untuk profil risiko Anda!")
 # ==========================================
