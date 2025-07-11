@@ -1708,19 +1708,30 @@ def stock_comparison(api_key, portfolio_df=pd.DataFrame()):
     )
     
     # Proses input
-    tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
+    input_tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
+    
+    # Dapatkan ticker dari portofolio (jika ada)
+    portfolio_tickers = []
+    if not portfolio_df.empty:
+        portfolio_tickers = portfolio_df['Ticker'].tolist()
+    
+    # Gabungkan dan hapus duplikat
+    all_tickers = list(set(input_tickers + portfolio_tickers))
     
     # Validasi jumlah saham
-    if len(tickers) < 2:
+    if len(all_tickers) < 2:
         st.warning("Masukkan minimal 2 saham untuk dibandingkan")
         return
-    if len(tickers) > 5:
+    if len(all_tickers) > 5:
         st.warning("Maksimal 5 saham yang dapat dibandingkan")
-        tickers = tickers[:5]
+        all_tickers = all_tickers[:5]
     
     if not api_key:
         st.warning("Silakan masukkan API Key FMP di sidebar untuk fitur ini")
         return    
+
+    # Daftar ticker yang ada di portofolio (untuk kolom "Sumber")
+    selected_portfolio = portfolio_tickers  # Perbaikan: gunakan daftar ticker portfolio
 
     # Kumpulkan data untuk setiap saham
     comparison_data = []
@@ -1760,6 +1771,7 @@ def stock_comparison(api_key, portfolio_df=pd.DataFrame()):
                 growth = {}
                 quote = {}
             
+            # Tambahkan data ke list perbandingan
             comparison_data.append({
                 "Ticker": ticker,
                 "Nama": profile.get('companyName', ticker),
@@ -1774,7 +1786,74 @@ def stock_comparison(api_key, portfolio_df=pd.DataFrame()):
             })
             
             progress_bar.progress((i+1)/len(all_tickers))
+        
+        status_text.text("Analisis selesai!")
 
+    if not comparison_data:
+        st.error("Tidak ada data yang berhasil dikumpulkan")
+        return
+    
+    # Tampilkan tabel perbandingan
+    st.subheader("Perbandingan Metrik Fundamental")
+    df = pd.DataFrame(comparison_data)
+    
+    # Format kolom
+    formatted_df = df.copy()
+    for col in ["Harga", "PER", "PBV", "ROE", "Pertumbuhan Pendapatan", "Dividen Yield"]:
+        if col == "Harga":
+            formatted_df[col] = formatted_df[col].apply(lambda x: f"Rp {x:,.0f}" if x and pd.notnull(x) else "-")
+        elif col == "Sentimen":
+            formatted_df[col] = formatted_df[col].apply(lambda x: f"{x:.2f}")
+        else:
+            formatted_df[col] = formatted_df[col].apply(lambda x: f"{x:.2f}%" if x and pd.notnull(x) else "-")
+    
+    # Tampilkan dengan warna berdasarkan sumber
+    def color_source(row):
+        color = 'lightgreen' if row['Sumber'] == 'Portofolio Anda' else 'lightblue'
+        return [f'background-color: {color}'] * len(row)
+    
+    st.dataframe(
+        formatted_df.style.apply(color_source, axis=1),
+        use_container_width=True
+    )
+    
+    # Grafik perbandingan
+    st.subheader("Grafik Perbandingan")
+    
+    # Pilih metrik untuk grafik
+    metrics = st.multiselect(
+        "Pilih metrik untuk ditampilkan:",
+        options=["PER", "PBV", "ROE", "Pertumbuhan Pendapatan", "Sentimen", "Dividen Yield"],
+        default=["PER", "PBV", "ROE"]
+    )
+    
+    if not metrics:
+        st.warning("Pilih minimal satu metrik")
+        return
+    
+    # Buat grafik untuk setiap metrik
+    for metric in metrics:
+        fig = px.bar(
+            df,
+            x="Ticker",
+            y=metric,
+            color="Sumber",
+            title=f"Perbandingan {metric}",
+            text=df[metric].apply(lambda x: f"{x:.2f}{'%' if metric != 'Sentimen' else ''}"),
+            labels={"value": metric},
+            color_discrete_map={
+                "Portofolio Anda": "green",
+                "Pasar Indonesia": "blue"
+            }
+        )
+        
+        fig.update_layout(
+            yaxis_title=metric,
+            xaxis_title="Saham"
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+    
     # Analisis komparatif
     st.subheader("Analisis Komparatif")
     
@@ -1823,10 +1902,6 @@ def stock_comparison(api_key, portfolio_df=pd.DataFrame()):
         )
     else:
         st.warning("Tidak ada metrik yang memiliki data valid untuk analisis")
-    
-    if not comparison_data:
-        st.error("Tidak ada data yang berhasil dikumpulkan")
-        return
     
     # Tampilkan tabel perbandingan
     st.subheader("Perbandingan Metrik Fundamental")
