@@ -1820,117 +1820,6 @@ def stock_comparison(api_key, portfolio_df=pd.DataFrame()):
     # Grafik perbandingan
     st.subheader("Grafik Perbandingan")
     
-    # Pilih metrik untuk grafik - PERBAIKAN: tambahkan key unik
-    metrics = st.multiselect(
-        "Pilih metrik untuk ditampilkan:",
-        options=["PER", "PBV", "ROE", "Pertumbuhan Pendapatan", "Sentimen", "Dividen Yield"],
-        default=["PER", "PBV", "ROE"],
-        key="metrics_selector"  # Key unik untuk menghindari error duplikat
-    )
-    
-    if not metrics:
-        st.warning("Pilih minimal satu metrik")
-        return
-    
-    # Buat grafik untuk setiap metrik
-    for metric in metrics:
-        fig = px.bar(
-            df,
-            x="Ticker",
-            y=metric,
-            color="Sumber",
-            title=f"Perbandingan {metric}",
-            text=df[metric].apply(lambda x: f"{x:.2f}{'%' if metric != 'Sentimen' else ''}"),
-            labels={"value": metric},
-            color_discrete_map={
-                "Portofolio Anda": "green",
-                "Pasar Indonesia": "blue"
-            }
-        )
-        
-        fig.update_layout(
-            yaxis_title=metric,
-            xaxis_title="Saham"
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-    
-    # Analisis komparatif
-    st.subheader("Analisis Komparatif")
-    
-    # Temukan saham dengan nilai terbaik untuk setiap metrik
-    best_stocks = {}
-    for metric in metrics:
-        # Filter hanya nilai yang valid (bukan 0 dan tidak null)
-        valid_df = df[df[metric].notna() & (df[metric] != 0)]
-        
-        # Periksa apakah ada data valid
-        if valid_df.empty:
-            st.warning(f"Tidak ada data valid untuk metrik {metric}")
-            continue
-            
-        if metric in ["PER", "PBV"]:  # Rendah lebih baik
-            # Periksa apakah ada nilai positif
-            if valid_df[metric].min() > 0:
-                best = valid_df.loc[valid_df[metric].idxmin()]["Ticker"]
-                best_stocks[metric] = {"saham": best, "nilai": valid_df[metric].min()}
-        else:  # Metrik lain: nilai tinggi lebih baik
-            best = valid_df.loc[valid_df[metric].idxmax()]["Ticker"]
-            best_stocks[metric] = {"saham": best, "nilai": valid_df[metric].max()}
-    
-    # Tampilkan hasil analisis hanya jika ada data
-    if best_stocks:
-        analysis_result = []
-        for metric, data in best_stocks.items():
-            analysis_result.append({
-                "Metrik": metric,
-                "Saham Terbaik": data["saham"],
-                "Nilai": f"{data['nilai']:.2f}{'%' if metric != 'Sentimen' else ''}",
-                "Kategori": "Portofolio Anda" if data["saham"] in selected_portfolio else "Pasar Indonesia"
-            })
-        
-        # Tampilkan dengan warna
-        def color_category(val):
-            color = 'green' if val == 'Portofolio Anda' else 'blue'
-            return f'background-color: {color}; color: white'
-        
-        st.dataframe(
-            pd.DataFrame(analysis_result).style.applymap(
-                color_category, 
-                subset=['Kategori']
-            ), 
-            use_container_width=True
-        )
-    else:
-        st.warning("Tidak ada metrik yang memiliki data valid untuk analisis")
-    
-    # Tampilkan tabel perbandingan
-    st.subheader("Perbandingan Metrik Fundamental")
-    df = pd.DataFrame(comparison_data)
-    
-    # Format kolom
-    formatted_df = df.copy()
-    for col in ["Harga", "PER", "PBV", "ROE", "Pertumbuhan Pendapatan", "Dividen Yield"]:
-        if col == "Harga":
-            formatted_df[col] = formatted_df[col].apply(lambda x: f"Rp {x:,.0f}" if x and pd.notnull(x) else "-")
-        elif col == "Sentimen":
-            formatted_df[col] = formatted_df[col].apply(lambda x: f"{x:.2f}")
-        else:
-            formatted_df[col] = formatted_df[col].apply(lambda x: f"{x:.2f}%" if x and pd.notnull(x) else "-")
-    
-    # Tampilkan dengan warna berdasarkan sumber
-    def color_source(row):
-        color = 'lightgreen' if row['Sumber'] == 'Portofolio Anda' else 'lightblue'
-        return [f'background-color: {color}'] * len(row)
-    
-    st.dataframe(
-        formatted_df.style.apply(color_source, axis=1),
-        use_container_width=True
-    )
-    
-    # Grafik perbandingan
-    st.subheader("Grafik Perbandingan")
-    
     # Pilih metrik untuk grafik
     metrics = st.multiselect(
         "Pilih metrik untuk ditampilkan:",
@@ -1963,7 +1852,8 @@ def stock_comparison(api_key, portfolio_df=pd.DataFrame()):
             xaxis_title="Saham"
         )
         
-        st.plotly_chart(fig, use_container_width=True)
+        # PERBAIKAN: Tambahkan key unik
+        st.plotly_chart(fig, use_container_width=True, key=f"chart_{metric}")
     
     # Analisis komparatif
     st.subheader("Analisis Komparatif")
