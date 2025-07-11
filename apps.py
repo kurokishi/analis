@@ -1687,68 +1687,101 @@ def get_diversification_recommendation(portfolio_df, risk_profile):
 # FUNGSI KOMPARASI SAHAM BARU
 # ==========================================
 
-def stock_comparison(api_key):
+def stock_comparison(api_key, portfolio_df=pd.DataFrame()):
     st.subheader("📊 Komparasi Saham")
-    st.info("Bandingkan 2-5 saham berdasarkan metrik fundamental dan sentimen pasar")
+    st.info("Bandingkan saham dari portofolio Anda dengan saham lainnya di pasar Indonesia")
     
-    # Input ticker saham
-    tickers_input = st.text_input(
-        "Masukkan kode saham (pisahkan dengan koma, contoh: BBCA,BBRI,TLKM):",
-        "BBCA.JK,BBRI.JK"
-    )
+    # Dapatkan daftar saham Indonesia
+    idx_stocks = []
+    if api_key:
+        try:
+            indonesian_stocks_url = f"https://financialmodelingprep.com/api/v3/stock-screener?exchange=IDX&apikey={api_key}"
+            response = requests.get(indonesian_stocks_url)
+            stocks_data = response.json()
+            idx_stocks = [{"Ticker": stock['symbol'], "Nama": stock['companyName']} for stock in stocks_data]
+        except Exception as e:
+            st.error(f"Gagal mendapatkan daftar saham Indonesia: {str(e)}")
     
-    # Proses input
-    tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
+    # Pilihan saham dari portofolio user
+    portfolio_options = []
+    if not portfolio_df.empty:
+        portfolio_options = portfolio_df['Ticker'].unique().tolist()
     
-    # Validasi jumlah saham
-    if len(tickers) < 2:
-        st.warning("Masukkan minimal 2 saham untuk dibandingkan")
+    # UI untuk memilih saham
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Saham Portofolio Anda")
+        selected_portfolio = st.multiselect(
+            "Pilih saham dari portofolio Anda:",
+            options=portfolio_options,
+            default=portfolio_options[:min(2, len(portfolio_options))] if portfolio_options else []
+        )
+    
+    with col2:
+        st.subheader("Saham Pasar Indonesia")
+        # Buat daftar pilihan saham IDX
+        idx_options = [f"{stock['Ticker']} ({stock['Nama']})" for stock in idx_stocks]
+        selected_idx = st.multiselect(
+            "Pilih saham dari pasar Indonesia:",
+            options=idx_options,
+            default=idx_options[:min(2, len(idx_options))] if idx_options else []
+        )
+        # Ekstrak kode ticker dari pilihan
+        selected_idx_tickers = [option.split(' ')[0] for option in selected_idx]
+    
+    # Gabungkan semua ticker yang dipilih
+    all_tickers = selected_portfolio + selected_idx_tickers
+    
+    if not all_tickers:
+        st.warning("Silakan pilih minimal satu saham untuk dibandingkan")
         return
-    if len(tickers) > 5:
+    
+    # Batasi maksimal 5 saham untuk efisiensi
+    if len(all_tickers) > 5:
         st.warning("Maksimal 5 saham yang dapat dibandingkan")
-        tickers = tickers[:5]
-    
-    if not api_key:
-        st.warning("Silakan masukkan API Key FMP di sidebar untuk fitur ini")
-        return
+        all_tickers = all_tickers[:5]
     
     # Kumpulkan data untuk setiap saham
     comparison_data = []
     
     with st.spinner("Mengumpulkan data saham..."):
         progress_bar = st.progress(0)
-        for i, ticker in enumerate(tickers):
+        status_text = st.empty()
+        
+        for i, ticker in enumerate(all_tickers):
+            status_text.text(f"Menganalisis {ticker} ({i+1}/{len(all_tickers)})...")
             clean_ticker = ticker.replace('.JK', '')
             
             # Dapatkan data fundamental
-            fmp_data = get_fmp_data(clean_ticker, api_key)
-            
-            if not fmp_data:
-                st.warning(f"Data tidak ditemukan untuk {ticker}")
-                continue
+            fmp_data = get_fmp_data(clean_ticker, api_key) if api_key else {}
             
             # Dapatkan data sentimen
             sentiment_score = get_stock_sentiment(ticker)
             
             # Ekstrak metrik penting
-            profile = fmp_data.get('profile', {})
-            ratios = fmp_data.get('ratios', {})
-            growth = fmp_data.get('growth', {})
-            quote = fmp_data.get('quote', {})
+            profile = fmp_data.get('profile', {}) if fmp_data else {}
+            ratios = fmp_data.get('ratios', {}) if fmp_data else {}
+            growth = fmp_data.get('growth', {}) if fmp_data else {}
+            quote = fmp_data.get('quote', {}) if fmp_data else {}
+            
+            # Dapatkan harga real-time sebagai fallback
+            last_price, _, _, _ = get_realtime_data(ticker)
             
             comparison_data.append({
                 "Ticker": ticker,
                 "Nama": profile.get('companyName', ticker),
-                "Harga": quote.get('price', 0),
+                "Harga": quote.get('price', last_price) if last_price else 0,
                 "PER": ratios.get('priceEarningsRatio', 0),
                 "PBV": ratios.get('priceToBookRatio', 0),
-                "ROE": ratios.get('returnOnEquity', 0) * 100,
-                "Pertumbuhan Pendapatan": growth.get('growthRevenue', 0) * 100,
+                "ROE": ratios.get('returnOnEquity', 0) * 100 if ratios.get('returnOnEquity') else 0,
+                "Pertumbuhan Pendapatan": growth.get('growthRevenue', 0) * 100 if growth.get('growthRevenue') else 0,
                 "Sentimen": sentiment_score,
-                "Dividen Yield": ratios.get('dividendYield', 0) * 100
+                "Dividen Yield": ratios.get('dividendYield', 0) * 100 if ratios.get('dividendYield') else 0,
+                "Sumber": "Portofolio Anda" if ticker in selected_portfolio else "Pasar Indonesia"
             })
             
-            progress_bar.progress((i+1)/len(tickers))
+            progress_bar.progress((i+1)/len(all_tickers))
     
     if not comparison_data:
         st.error("Tidak ada data yang berhasil dikumpulkan")
@@ -1762,13 +1795,21 @@ def stock_comparison(api_key):
     formatted_df = df.copy()
     for col in ["Harga", "PER", "PBV", "ROE", "Pertumbuhan Pendapatan", "Dividen Yield"]:
         if col == "Harga":
-            formatted_df[col] = formatted_df[col].apply(lambda x: f"Rp {x:,.0f}" if pd.notnull(x) else "-")
+            formatted_df[col] = formatted_df[col].apply(lambda x: f"Rp {x:,.0f}" if x and pd.notnull(x) else "-")
         elif col == "Sentimen":
             formatted_df[col] = formatted_df[col].apply(lambda x: f"{x:.2f}")
         else:
-            formatted_df[col] = formatted_df[col].apply(lambda x: f"{x:.2f}%" if pd.notnull(x) else "-")
+            formatted_df[col] = formatted_df[col].apply(lambda x: f"{x:.2f}%" if x and pd.notnull(x) else "-")
     
-    st.dataframe(formatted_df, use_container_width=True)
+    # Tampilkan dengan warna berdasarkan sumber
+    def color_source(row):
+        color = 'lightgreen' if row['Sumber'] == 'Portofolio Anda' else 'lightblue'
+        return [f'background-color: {color}'] * len(row)
+    
+    st.dataframe(
+        formatted_df.style.apply(color_source, axis=1),
+        use_container_width=True
+    )
     
     # Grafik perbandingan
     st.subheader("Grafik Perbandingan")
@@ -1790,25 +1831,58 @@ def stock_comparison(api_key):
             df,
             x="Ticker",
             y=metric,
-            color="Ticker",
+            color="Sumber",
             title=f"Perbandingan {metric}",
             text=df[metric].apply(lambda x: f"{x:.2f}{'%' if metric != 'Sentimen' else ''}"),
-            labels={"value": metric}
+            labels={"value": metric},
+            color_discrete_map={
+                "Portofolio Anda": "green",
+                "Pasar Indonesia": "blue"
+            }
         )
         
-        # Atur warna berdasarkan nilai
-        if metric == "Sentimen":
-            fig.update_traces(marker_color=df[metric].apply(
-                lambda x: "green" if x > 0.3 else "red" if x < -0.3 else "gray"
-            ))
-        
         fig.update_layout(
-            showlegend=False,
             yaxis_title=metric,
             xaxis_title="Saham"
         )
         
         st.plotly_chart(fig, use_container_width=True)
+    
+    # Analisis komparatif
+    st.subheader("Analisis Komparatif")
+    
+    # Temukan saham dengan nilai terbaik untuk setiap metrik
+    best_stocks = {}
+    for metric in metrics:
+        if metric in ["PER", "PBV"]:  # Rendah lebih baik
+            best = df.loc[df[metric].replace(0, np.nan).dropna().idxmin()]["Ticker"]
+            best_stocks[metric] = {"saham": best, "nilai": df[metric].min()}
+        else:  # Metrik lain: nilai tinggi lebih baik
+            best = df.loc[df[metric].replace(0, np.nan).dropna().idxmax()]["Ticker"]
+            best_stocks[metric] = {"saham": best, "nilai": df[metric].max()}
+    
+    # Tampilkan hasil analisis
+    analysis_result = []
+    for metric, data in best_stocks.items():
+        analysis_result.append({
+            "Metrik": metric,
+            "Saham Terbaik": data["saham"],
+            "Nilai": f"{data['nilai']:.2f}{'%' if metric != 'Sentimen' else ''}",
+            "Kategori": "Portofolio Anda" if data["saham"] in selected_portfolio else "Pasar Indonesia"
+        })
+    
+    # Tampilkan dengan warna
+    def color_category(val):
+        color = 'green' if val == 'Portofolio Anda' else 'blue'
+        return f'background-color: {color}; color: white'
+    
+    st.dataframe(
+        pd.DataFrame(analysis_result).style.applymap(
+            color_category, 
+            subset=['Kategori']
+        ), 
+        use_container_width=True
+    )
     
     # Analisis komparatif
     st.subheader("Analisis Komparatif")
@@ -2160,6 +2234,6 @@ elif selected_menu == "Smart Assistant & Rekomendasi AI":
 # Tambahkan else untuk menangani kasus yang tidak terduga
 elif selected_menu == "Komparasi Saham":
     if api_key:
-        stock_comparison(api_key)
+        stock_comparison(api_key, portfolio_df)
     else:
         st.warning("Silakan masukkan API Key FMP di sidebar")
