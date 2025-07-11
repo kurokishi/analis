@@ -1700,8 +1700,27 @@ def get_diversification_recommendation(portfolio_df, risk_profile):
 def stock_comparison(api_key, portfolio_df=pd.DataFrame()):
     st.subheader("📊 Komparasi Saham")
     st.info("Bandingkan saham dari portofolio Anda dengan saham lainnya di pasar Indonesia")
+   
+    # Input ticker saham
+    tickers_input = st.text_input(
+        "Masukkan kode saham (pisahkan dengan koma, contoh: BBCA,BBRI,TLKM):",
+        "BBCA.JK,BBRI.JK"
+    )
     
-    # ... (kode sebelumnya tetap sama)
+    # Proses input
+    tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
+    
+    # Validasi jumlah saham
+    if len(tickers) < 2:
+        st.warning("Masukkan minimal 2 saham untuk dibandingkan")
+        return
+    if len(tickers) > 5:
+        st.warning("Maksimal 5 saham yang dapat dibandingkan")
+        tickers = tickers[:5]
+    
+    if not api_key:
+        st.warning("Silakan masukkan API Key FMP di sidebar untuk fitur ini")
+        return    
 
     # Kumpulkan data untuk setiap saham
     comparison_data = []
@@ -1755,8 +1774,6 @@ def stock_comparison(api_key, portfolio_df=pd.DataFrame()):
             })
             
             progress_bar.progress((i+1)/len(all_tickers))
-    
-    # ... (kode sebelumnya tetap sama)
 
     # Analisis komparatif
     st.subheader("Analisis Komparatif")
