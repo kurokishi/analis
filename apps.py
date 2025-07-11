@@ -844,8 +844,9 @@ def calculate_rsi(prices, window=14):
     gain = (delta.where(delta > 0, 0)).fillna(0)
     loss = (-delta.where(delta < 0, 0)).fillna(0)
     
-    avg_gain = gain.rolling(window=window).mean()
-    avg_loss = loss.rolling(window=window).mean()
+    # Perbaikan: hindari pembagian dengan nol
+    avg_gain = gain.rolling(window=window).mean().replace(0, 1e-10)
+    avg_loss = loss.rolling(window=window).mean().replace(0, 1e-10)
     
     rs = avg_gain / avg_loss
     rsi = 100 - (100 / (1 + rs))
@@ -1731,7 +1732,7 @@ def stock_comparison(api_key, portfolio_df=pd.DataFrame()):
         return    
 
     # Daftar ticker yang ada di portofolio (untuk kolom "Sumber")
-    selected_portfolio = portfolio_tickers  # Perbaikan: gunakan daftar ticker portfolio
+    selected_portfolio = portfolio_tickers
 
     # Kumpulkan data untuk setiap saham
     comparison_data = []
@@ -1771,7 +1772,6 @@ def stock_comparison(api_key, portfolio_df=pd.DataFrame()):
                 growth = {}
                 quote = {}
             
-            # Tambahkan data ke list perbandingan
             comparison_data.append({
                 "Ticker": ticker,
                 "Nama": profile.get('companyName', ticker),
@@ -1820,11 +1820,12 @@ def stock_comparison(api_key, portfolio_df=pd.DataFrame()):
     # Grafik perbandingan
     st.subheader("Grafik Perbandingan")
     
-    # Pilih metrik untuk grafik
+    # Pilih metrik untuk grafik - PERBAIKAN: tambahkan key unik
     metrics = st.multiselect(
         "Pilih metrik untuk ditampilkan:",
         options=["PER", "PBV", "ROE", "Pertumbuhan Pendapatan", "Sentimen", "Dividen Yield"],
-        default=["PER", "PBV", "ROE"]
+        default=["PER", "PBV", "ROE"],
+        key="metrics_selector"  # Key unik untuk menghindari error duplikat
     )
     
     if not metrics:
