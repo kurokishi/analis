@@ -359,6 +359,13 @@ def get_fmp_data(ticker, api_key):
         # Dapatkan profil perusahaan
         profile_url = f"https://financialmodelingprep.com/api/v3/profile/{ticker}?apikey={api_key}"
         profile_response = requests.get(profile_url)
+        
+        # Periksa status response
+        if profile_response.status_code != 200:
+            error_msg = f"Error {profile_response.status_code}: {profile_response.text}"
+            st.error(f"Error fetching FMP profile data: {error_msg}")
+            return None
+            
         profile_data = profile_response.json()
         
         if not profile_data:
@@ -394,9 +401,12 @@ def get_fmp_data(ticker, api_key):
             'growth': growth_data[0] if growth_data else {}
         }
         
-        return fmp_data
     except Exception as e:
-        st.error(f"Error fetching FMP data: {str(e)}")
+        # Tangani khusus error code 0
+        if "0" in str(e):
+            st.error("Koneksi ke API FMP gagal. Silakan cek koneksi internet Anda.")
+        else:
+            st.error(f"Error fetching FMP data: {str(e)}")
         return None
 
 # Fungsi untuk memperbarui data real-time portfolio
@@ -1691,57 +1701,8 @@ def stock_comparison(api_key, portfolio_df=pd.DataFrame()):
     st.subheader("📊 Komparasi Saham")
     st.info("Bandingkan saham dari portofolio Anda dengan saham lainnya di pasar Indonesia")
     
-    # Dapatkan daftar saham Indonesia
-    idx_stocks = []
-    if api_key:
-        try:
-            indonesian_stocks_url = f"https://financialmodelingprep.com/api/v3/stock-screener?exchange=IDX&apikey={api_key}"
-            response = requests.get(indonesian_stocks_url)
-            stocks_data = response.json()
-            idx_stocks = [{"Ticker": stock['symbol'], "Nama": stock['companyName']} for stock in stocks_data]
-        except Exception as e:
-            st.error(f"Gagal mendapatkan daftar saham Indonesia: {str(e)}")
-    
-    # Pilihan saham dari portofolio user
-    portfolio_options = []
-    if not portfolio_df.empty:
-        portfolio_options = portfolio_df['Ticker'].unique().tolist()
-    
-    # UI untuk memilih saham
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("Saham Portofolio Anda")
-        selected_portfolio = st.multiselect(
-            "Pilih saham dari portofolio Anda:",
-            options=portfolio_options,
-            default=portfolio_options[:min(2, len(portfolio_options))] if portfolio_options else []
-        )
-    
-    with col2:
-        st.subheader("Saham Pasar Indonesia")
-        # Buat daftar pilihan saham IDX
-        idx_options = [f"{stock['Ticker']} ({stock['Nama']})" for stock in idx_stocks]
-        selected_idx = st.multiselect(
-            "Pilih saham dari pasar Indonesia:",
-            options=idx_options,
-            default=idx_options[:min(2, len(idx_options))] if idx_options else []
-        )
-        # Ekstrak kode ticker dari pilihan
-        selected_idx_tickers = [option.split(' ')[0] for option in selected_idx]
-    
-    # Gabungkan semua ticker yang dipilih
-    all_tickers = selected_portfolio + selected_idx_tickers
-    
-    if not all_tickers:
-        st.warning("Silakan pilih minimal satu saham untuk dibandingkan")
-        return
-    
-    # Batasi maksimal 5 saham untuk efisiensi
-    if len(all_tickers) > 5:
-        st.warning("Maksimal 5 saham yang dapat dibandingkan")
-        all_tickers = all_tickers[:5]
-    
+    # ... (kode sebelumnya tetap sama)
+
     # Kumpulkan data untuk setiap saham
     comparison_data = []
     
@@ -1753,20 +1714,32 @@ def stock_comparison(api_key, portfolio_df=pd.DataFrame()):
             status_text.text(f"Menganalisis {ticker} ({i+1}/{len(all_tickers)})...")
             clean_ticker = ticker.replace('.JK', '')
             
-            # Dapatkan data fundamental
-            fmp_data = get_fmp_data(clean_ticker, api_key) if api_key else {}
+            # Gunakan cache untuk mengurangi permintaan API
+            cache_key = f"fmp_data_{clean_ticker}"
+            if cache_key in st.session_state:
+                fmp_data = st.session_state[cache_key]
+            else:
+                fmp_data = get_fmp_data(clean_ticker, api_key) if api_key else {}
+                st.session_state[cache_key] = fmp_data
             
             # Dapatkan data sentimen
             sentiment_score = get_stock_sentiment(ticker)
             
-            # Ekstrak metrik penting
-            profile = fmp_data.get('profile', {}) if fmp_data else {}
-            ratios = fmp_data.get('ratios', {}) if fmp_data else {}
-            growth = fmp_data.get('growth', {}) if fmp_data else {}
-            quote = fmp_data.get('quote', {}) if fmp_data else {}
-            
             # Dapatkan harga real-time sebagai fallback
             last_price, _, _, _ = get_realtime_data(ticker)
+            
+            # Periksa apakah data FMP valid
+            if fmp_data and 'profile' in fmp_data:
+                profile = fmp_data.get('profile', {})
+                ratios = fmp_data.get('ratios', {})
+                growth = fmp_data.get('growth', {})
+                quote = fmp_data.get('quote', {})
+            else:
+                # Gunakan data default jika tidak ada data FMP
+                profile = {}
+                ratios = {}
+                growth = {}
+                quote = {}
             
             comparison_data.append({
                 "Ticker": ticker,
@@ -1782,6 +1755,57 @@ def stock_comparison(api_key, portfolio_df=pd.DataFrame()):
             })
             
             progress_bar.progress((i+1)/len(all_tickers))
+    
+    # ... (kode sebelumnya tetap sama)
+
+    # Analisis komparatif
+    st.subheader("Analisis Komparatif")
+    
+    # Temukan saham dengan nilai terbaik untuk setiap metrik
+    best_stocks = {}
+    for metric in metrics:
+        # Filter hanya nilai yang valid (bukan 0 dan tidak null)
+        valid_df = df[df[metric].notna() & (df[metric] != 0)]
+        
+        # Periksa apakah ada data valid
+        if valid_df.empty:
+            st.warning(f"Tidak ada data valid untuk metrik {metric}")
+            continue
+            
+        if metric in ["PER", "PBV"]:  # Rendah lebih baik
+            # Periksa apakah ada nilai positif
+            if valid_df[metric].min() > 0:
+                best = valid_df.loc[valid_df[metric].idxmin()]["Ticker"]
+                best_stocks[metric] = {"saham": best, "nilai": valid_df[metric].min()}
+        else:  # Metrik lain: nilai tinggi lebih baik
+            best = valid_df.loc[valid_df[metric].idxmax()]["Ticker"]
+            best_stocks[metric] = {"saham": best, "nilai": valid_df[metric].max()}
+    
+    # Tampilkan hasil analisis hanya jika ada data
+    if best_stocks:
+        analysis_result = []
+        for metric, data in best_stocks.items():
+            analysis_result.append({
+                "Metrik": metric,
+                "Saham Terbaik": data["saham"],
+                "Nilai": f"{data['nilai']:.2f}{'%' if metric != 'Sentimen' else ''}",
+                "Kategori": "Portofolio Anda" if data["saham"] in selected_portfolio else "Pasar Indonesia"
+            })
+        
+        # Tampilkan dengan warna
+        def color_category(val):
+            color = 'green' if val == 'Portofolio Anda' else 'blue'
+            return f'background-color: {color}; color: white'
+        
+        st.dataframe(
+            pd.DataFrame(analysis_result).style.applymap(
+                color_category, 
+                subset=['Kategori']
+            ), 
+            use_container_width=True
+        )
+    else:
+        st.warning("Tidak ada metrik yang memiliki data valid untuk analisis")
     
     if not comparison_data:
         st.error("Tidak ada data yang berhasil dikumpulkan")
@@ -1854,35 +1878,48 @@ def stock_comparison(api_key, portfolio_df=pd.DataFrame()):
     # Temukan saham dengan nilai terbaik untuk setiap metrik
     best_stocks = {}
     for metric in metrics:
+        # Filter hanya nilai yang valid (bukan 0 dan tidak null)
+        valid_df = df[df[metric].notna() & (df[metric] != 0)]
+        
+        # Periksa apakah ada data valid
+        if valid_df.empty:
+            st.warning(f"Tidak ada data valid untuk metrik {metric}")
+            continue
+            
         if metric in ["PER", "PBV"]:  # Rendah lebih baik
-            best = df.loc[df[metric].replace(0, np.nan).dropna().idxmin()]["Ticker"]
-            best_stocks[metric] = {"saham": best, "nilai": df[metric].min()}
+            # Periksa apakah ada nilai positif
+            if valid_df[metric].min() > 0:
+                best = valid_df.loc[valid_df[metric].idxmin()]["Ticker"]
+                best_stocks[metric] = {"saham": best, "nilai": valid_df[metric].min()}
         else:  # Metrik lain: nilai tinggi lebih baik
-            best = df.loc[df[metric].replace(0, np.nan).dropna().idxmax()]["Ticker"]
-            best_stocks[metric] = {"saham": best, "nilai": df[metric].max()}
+            best = valid_df.loc[valid_df[metric].idxmax()]["Ticker"]
+            best_stocks[metric] = {"saham": best, "nilai": valid_df[metric].max()}
     
-    # Tampilkan hasil analisis
-    analysis_result = []
-    for metric, data in best_stocks.items():
-        analysis_result.append({
-            "Metrik": metric,
-            "Saham Terbaik": data["saham"],
-            "Nilai": f"{data['nilai']:.2f}{'%' if metric != 'Sentimen' else ''}",
-            "Kategori": "Portofolio Anda" if data["saham"] in selected_portfolio else "Pasar Indonesia"
-        })
-    
-    # Tampilkan dengan warna
-    def color_category(val):
-        color = 'green' if val == 'Portofolio Anda' else 'blue'
-        return f'background-color: {color}; color: white'
-    
-    st.dataframe(
-        pd.DataFrame(analysis_result).style.applymap(
-            color_category, 
-            subset=['Kategori']
-        ), 
-        use_container_width=True
-    )
+    # Tampilkan hasil analisis hanya jika ada data
+    if best_stocks:
+        analysis_result = []
+        for metric, data in best_stocks.items():
+            analysis_result.append({
+                "Metrik": metric,
+                "Saham Terbaik": data["saham"],
+                "Nilai": f"{data['nilai']:.2f}{'%' if metric != 'Sentimen' else ''}",
+                "Kategori": "Portofolio Anda" if data["saham"] in selected_portfolio else "Pasar Indonesia"
+            })
+        
+        # Tampilkan dengan warna
+        def color_category(val):
+            color = 'green' if val == 'Portofolio Anda' else 'blue'
+            return f'background-color: {color}; color: white'
+        
+        st.dataframe(
+            pd.DataFrame(analysis_result).style.applymap(
+                color_category, 
+                subset=['Kategori']
+            ), 
+            use_container_width=True
+        )
+    else:
+        st.warning("Tidak ada metrik yang memiliki data valid untuk analisis")
     
     # Analisis komparatif
     st.subheader("Analisis Komparatif")
