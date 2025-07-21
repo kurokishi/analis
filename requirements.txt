@@ -14,4 +14,4 @@ vaderSentiment
 feedparser
 requests
 statsmodels
-alpha-vantage
+alpha-vantage==2.3.0
