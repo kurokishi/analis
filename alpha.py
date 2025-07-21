@@ -102,7 +102,7 @@ def display_stock_profile(ticker, data):
     with col1:
         currency = "$" if '.' in ticker else "Rp"
         st.metric("Harga Terakhir", f"{currency}{data['Close'].iloc[-1]:.2f}")
-        change = ((data['Close'].iloc[-1] - data['Close'].iloc[-2]) / data['Close'].iloc[-2] * 100
+        change = ((data['Close'].iloc[-1] - data['Close'].iloc[-2]) / data['Close'].iloc[-2] * 100)
         st.metric("Perubahan 1 Hari", f"{change:.2f}%", delta_color="inverse")
     
     with col2:
