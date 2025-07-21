@@ -3,7 +3,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from alpha_vantage.fundamentals import Fundamentals
+from alpha_vantage.fundamentals import FundamentalData
 from alpha_vantage.techindicators import TechIndicators
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
@@ -119,7 +119,7 @@ def display_fundamental_analysis(ticker, api_key):
     
     try:
         # Ambil data dari Alpha Vantage
-        fund = Fundamentals(key=api_key, output_format='pandas')
+        fund = FundamentalData(key=api_key, output_format='pandas')
         data, _ = fund.get_company_overview(symbol=ticker.split('.')[0])
         
         # Tampilkan metrik utama
@@ -165,7 +165,17 @@ def display_fundamental_analysis(ticker, api_key):
         
     except Exception as e:
         st.error(f"Error fetching fundamental data: {str(e)}")
-
+# Di dalam display_fundamental_analysis
+try:
+    # ... kode yang ada ...
+except ValueError as e:
+    if "Invalid API call" in str(e):
+        st.warning(f"Data fundamental tidak tersedia untuk {ticker} di Alpha Vantage")
+        st.info("Hanya saham AS yang didukung untuk analisis fundamental")
+    else:
+        st.error(f"Error: {str(e)}")
+except Exception as e:
+    st.error(f"Error fetching fundamental data: {str(e)}")
 # Fungsi analisis teknikal
 def display_technical_analysis(ticker, data):
     st.subheader("Analisis Teknikal")
@@ -222,9 +232,14 @@ def display_technical_analysis(ticker, data):
 # Fungsi perhitungan RSI
 def compute_rsi(prices, window=14):
     delta = prices.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
-    rs = gain / loss
+    gain = (delta.where(delta > 0, 0)).fillna(0)
+    loss = (-delta.where(delta < 0, 0)).fillna(0)
+    
+    avg_gain = gain.rolling(window=window).mean()
+    avg_loss = loss.rolling(window=window).mean()
+    
+    # Handle division by zero
+    rs = avg_gain / avg_loss.replace(0, 1)
     return 100 - (100 / (1 + rs))
 
 # Fungsi hitung support & resistance
