@@ -14,5 +14,4 @@ vaderSentiment
 feedparser
 requests
 statsmodels
-pmdarima
 alpha-vantage
