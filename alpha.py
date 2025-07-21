@@ -81,7 +81,7 @@ def fetch_stock_data(ticker):
             ticker, 
             start=start_date, 
             end=end_date,
-            auto_adjust=True  # Menambahkan parameter untuk menghindari warning
+            auto_adjust=True
         )
         
         # Cek jika data kosong
@@ -103,10 +103,10 @@ def display_stock_profile(ticker, data):
     stock = yf.Ticker(ticker)
     info = stock.info
     
-    # Konversi nilai ke float
-    last_close = float(data['Close'].iloc[-1])
-    prev_close = float(data['Close'].iloc[-2])
-    volume = float(data['Volume'].iloc[-1])
+    # Ambil nilai sebagai float tanpa konversi eksplisit
+    last_close = data['Close'].iloc[-1]
+    prev_close = data['Close'].iloc[-2]
+    volume = data['Volume'].iloc[-1]
     
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -114,14 +114,13 @@ def display_stock_profile(ticker, data):
         st.metric("Harga Terakhir", f"{currency}{last_close:.2f}")
         
         # Hitung perubahan persentase
-        change_pct = ((last_close - prev_close) / prev_close * 100)
+        change_pct = ((last_close - prev_close) / prev_close * 100
         st.metric("Perubahan 1 Hari", f"{change_pct:.2f}%", delta_color="inverse")
     
     with col2:
         st.metric("Volume", f"{volume:,.0f}")
         market_cap = info.get('marketCap', 'N/A')
         if isinstance(market_cap, (int, float)):
-            market_cap = float(market_cap)
             st.metric("Market Cap", f"${market_cap/1e9:.2f}B" if market_cap > 1e9 else f"${market_cap/1e6:.2f}M")
         else:
             st.metric("Market Cap", "N/A")
@@ -207,15 +206,12 @@ def display_fundamental_analysis(ticker, api_key):
     except Exception as e:
         st.error(f"Error fetching fundamental data: {str(e)}")
 
-# Fungsi analisis teknikal
+# Fungsi analisis teknikal - PERBAIKAN UTAMA
 def display_technical_analysis(ticker, data):
     st.subheader("Analisis Teknikal")
     
     if data.empty:
         return
-    
-    # Konversi nilai ke float
-    data['Close'] = data['Close'].astype(float)
     
     # Hitung indikator teknikal
     data['MA50'] = data['Close'].rolling(window=50).mean()
@@ -243,15 +239,21 @@ def display_technical_analysis(ticker, data):
     
     # Analisis sinyal
     st.subheader("Interpretasi Teknikal")
-    last_rsi = float(data['RSI'].iloc[-1])
+    last_rsi = data['RSI'].iloc[-1]
+    
+    # PERBAIKAN: Ambil nilai sebagai float
+    close_last = data['Close'].iloc[-1]
+    ma50_last = data['MA50'].iloc[-1]
+    ma200_last = data['MA200'].iloc[-1]
     
     # Cek apakah cukup data untuk analisis
     if len(data) < 200:
         st.warning("Data historis kurang dari 200 hari, analisis teknikal mungkin tidak akurat")
     
+    # PERBAIKAN: Pisahkan kondisi menjadi dua bagian
     trend = "Bullish" 
     if len(data) >= 200:
-        if data['Close'].iloc[-1] > data['MA50'].iloc[-1] > data['MA200'].iloc[-1]:
+        if close_last > ma50_last and ma50_last > ma200_last:
             trend = "Bullish"
         else:
             trend = "Bearish"
@@ -264,7 +266,8 @@ def display_technical_analysis(ticker, data):
         st.markdown(f"<div class='metric-card technical'><h4>RSI</h4><h2>{last_rsi:.2f} - {rsi_status}</h2></div>", unsafe_allow_html=True)
     with col3:
         if len(data) >= 200:
-            ma_status = "Golden Cross" if data['MA50'].iloc[-1] > data['MA200'].iloc[-1] else "Death Cross"
+            # PERBAIKAN: Gunakan nilai yang sudah diambil
+            ma_status = "Golden Cross" if ma50_last > ma200_last else "Death Cross"
         else:
             ma_status = "Data tidak cukup"
         st.markdown(f"<div class='metric-card technical'><h4>MA Cross</h4><h2>{ma_status}</h2></div>", unsafe_allow_html=True)
@@ -280,9 +283,6 @@ def display_technical_analysis(ticker, data):
 
 # Fungsi perhitungan RSI
 def compute_rsi(prices, window=14):
-    # Konversi ke float
-    prices = prices.astype(float)
-    
     delta = prices.diff()
     gain = (delta.where(delta > 0, 0)).fillna(0)
     loss = (-delta.where(delta < 0, 0)).fillna(0)
@@ -298,9 +298,6 @@ def compute_rsi(prices, window=14):
 
 # Fungsi hitung support & resistance
 def calculate_support_resistance(data, window=30):
-    # Konversi ke float
-    data = data.astype(float)
-    
     if len(data) < window:
         window = len(data)
         
@@ -331,7 +328,7 @@ def display_stock_screener(api_key):
             sector = st.selectbox("Sektor", ["Semua", "Teknologi", "Keuangan", "Kesehatan", "Konsumsi"])
             market_cap = st.selectbox("Market Cap", ["Semua", "Large Cap", "Mid Cap", "Small Cap"])
     
-    # Contoh data saham (dalam real app, ini akan diambil dari API)
+    # Contoh data saham
     stocks = pd.DataFrame({
         'Ticker': ['BBCA.JK', 'TLKM.JK', 'AAPL', 'MSFT', 'GOOGL', 'ASII.JK', 'UNVR.JK'],
         'Nama': ['Bank BCA', 'Telkom Indonesia', 'Apple Inc', 'Microsoft', 'Alphabet', 'Astra International', 'Unilever Indonesia'],
