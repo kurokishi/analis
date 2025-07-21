@@ -77,7 +77,12 @@ def fetch_stock_data(ticker):
     try:
         end_date = datetime.now()
         start_date = end_date - timedelta(days=365)
-        data = yf.download(ticker, start=start_date, end=end_date)
+        data = yf.download(
+            ticker, 
+            start=start_date, 
+            end=end_date,
+            auto_adjust=True  # Menambahkan parameter untuk menghindari warning
+        )
         
         # Cek jika data kosong
         if data.empty:
@@ -89,7 +94,7 @@ def fetch_stock_data(ticker):
         st.error(f"Error mengambil data: {str(e)}")
         return pd.DataFrame()
 
-# Fungsi tampilkan profil saham
+# Fungsi tampilkan profil saham - PERBAIKAN UTAMA
 def display_stock_profile(ticker, data):
     if data.empty:
         return
@@ -98,17 +103,25 @@ def display_stock_profile(ticker, data):
     stock = yf.Ticker(ticker)
     info = stock.info
     
+    # Konversi nilai ke float
+    last_close = float(data['Close'].iloc[-1])
+    prev_close = float(data['Close'].iloc[-2])
+    volume = float(data['Volume'].iloc[-1])
+    
     col1, col2, col3 = st.columns(3)
     with col1:
         currency = "$" if '.' in ticker else "Rp"
-        st.metric("Harga Terakhir", f"{currency}{data['Close'].iloc[-1]:.2f}")
-        change = ((data['Close'].iloc[-1] - data['Close'].iloc[-2]) / data['Close'].iloc[-2] * 100)
-        st.metric("Perubahan 1 Hari", f"{change:.2f}%", delta_color="inverse")
+        st.metric("Harga Terakhir", f"{currency}{last_close:.2f}")
+        
+        # Hitung perubahan persentase
+        change_pct = ((last_close - prev_close) / prev_close * 100
+        st.metric("Perubahan 1 Hari", f"{change_pct:.2f}%", delta_color="inverse")
     
     with col2:
-        st.metric("Volume", f"{data['Volume'].iloc[-1]:,}")
+        st.metric("Volume", f"{volume:,.0f}")
         market_cap = info.get('marketCap', 'N/A')
         if isinstance(market_cap, (int, float)):
+            market_cap = float(market_cap)
             st.metric("Market Cap", f"${market_cap/1e9:.2f}B" if market_cap > 1e9 else f"${market_cap/1e6:.2f}M")
         else:
             st.metric("Market Cap", "N/A")
@@ -130,7 +143,7 @@ def display_stock_profile(ticker, data):
                     xaxis_rangeslider_visible=False)
     st.plotly_chart(fig, use_container_width=True)
 
-# Fungsi analisis fundamental - PERBAIKAN INDEMTASI
+# Fungsi analisis fundamental
 def display_fundamental_analysis(ticker, api_key):
     st.subheader("Analisis Fundamental")
     
@@ -201,6 +214,9 @@ def display_technical_analysis(ticker, data):
     if data.empty:
         return
     
+    # Konversi nilai ke float
+    data['Close'] = data['Close'].astype(float)
+    
     # Hitung indikator teknikal
     data['MA50'] = data['Close'].rolling(window=50).mean()
     data['MA200'] = data['Close'].rolling(window=200).mean()
@@ -227,7 +243,7 @@ def display_technical_analysis(ticker, data):
     
     # Analisis sinyal
     st.subheader("Interpretasi Teknikal")
-    last_rsi = data['RSI'].iloc[-1]
+    last_rsi = float(data['RSI'].iloc[-1])
     
     # Cek apakah cukup data untuk analisis
     if len(data) < 200:
@@ -264,6 +280,9 @@ def display_technical_analysis(ticker, data):
 
 # Fungsi perhitungan RSI
 def compute_rsi(prices, window=14):
+    # Konversi ke float
+    prices = prices.astype(float)
+    
     delta = prices.diff()
     gain = (delta.where(delta > 0, 0)).fillna(0)
     loss = (-delta.where(delta < 0, 0)).fillna(0)
@@ -279,6 +298,9 @@ def compute_rsi(prices, window=14):
 
 # Fungsi hitung support & resistance
 def calculate_support_resistance(data, window=30):
+    # Konversi ke float
+    data = data.astype(float)
+    
     if len(data) < window:
         window = len(data)
         
