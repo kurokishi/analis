@@ -114,7 +114,7 @@ def display_stock_profile(ticker, data):
         st.metric("Harga Terakhir", f"{currency}{last_close:.2f}")
         
         # Hitung perubahan persentase
-        change_pct = ((last_close - prev_close) / prev_close * 100
+        change_pct = ((last_close - prev_close) / prev_close * 100)
         st.metric("Perubahan 1 Hari", f"{change_pct:.2f}%", delta_color="inverse")
     
     with col2:
