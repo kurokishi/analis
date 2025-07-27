@@ -41,13 +41,13 @@ def main():
         else:
             api_key = None
     
-    # Tab utama - SEMUA TAB DITAMBAHKAN SEKALIGUS DI SINI
+    # Tab utama - semua tab didefinisikan sekaligus
     tabs = st.tabs([
         "📊 Profil Saham", 
         "📈 Analisis Fundamental", 
         "📉 Analisis Teknikal", 
         "🔍 Stock Screener",
-        "📍 Rekomendasi Time Horizon"  # Tab baru langsung ditambahkan
+        "📍 Rekomendasi Time Horizon"
     ])
     
     # Ambil data
@@ -78,35 +78,6 @@ def main():
     # Tab 5: Rekomendasi Time Horizon
     with tabs[4]:
         display_investment_recommendations()
-    
-    # Tab 1: Profil Saham
-    with tabs[0]:
-        if not stock_data.empty:
-            display_stock_profile(ticker, stock_data)
-        else:
-            st.error(f"Data untuk {ticker} tidak ditemukan")
-    
-    # Tab 2: Analisis Fundamental
-    with tabs[1]:
-        display_fundamental_analysis(ticker, api_source, api_key)
-    
-    # Tab 3: Analisis Teknikal
-    with tabs[2]:
-        if not stock_data.empty:
-            display_technical_analysis(ticker, stock_data)
-        else:
-            st.error(f"Data untuk {ticker} tidak cukup untuk analisis teknikal")
-    
-    # Tab 4: Stock Screener
-    with tabs[3]:
-        display_stock_screener(api_source, api_key)
-        
-# === TAB BARU UNTUK INVESTASI BERDASARKAN HORIZON ===
-    tabs.append(st.tab("\ud83d\udccc Rekomendasi Time Horizon"))
-
-    # Tab 5: Rekomendasi Time Horizon
-    with tabs[4]:
-        display_investment_recommendations()
 
 # Fungsi ambil data saham
 def fetch_stock_data(ticker):
@@ -130,7 +101,7 @@ def fetch_stock_data(ticker):
         st.error(f"Error mengambil data: {str(e)}")
         return pd.DataFrame()
 
-# Fungsi tampilkan profil saham
+# Fungsi tampilkan profil saham - PERBAIKAN: KONVERSI KE FLOAT
 def display_stock_profile(ticker, data):
     if data.empty or len(data) < 2:
         st.error("Data tidak cukup untuk menampilkan profil saham")
@@ -140,10 +111,10 @@ def display_stock_profile(ticker, data):
     stock = yf.Ticker(ticker)
     info = stock.info
     
-    # PERBAIKAN: Hapus float() karena nilai sudah numerik
-    last_close = data['Close'].iloc[-1] if not data.empty else 0
-    prev_close = data['Close'].iloc[-2] if len(data) >= 2 else 0
-    volume = data['Volume'].iloc[-1] if not data.empty else 0
+    # Konversi ke float secara eksplisit
+    last_close = float(data['Close'].iloc[-1]) if not data.empty else 0
+    prev_close = float(data['Close'].iloc[-2]) if len(data) >= 2 else 0
+    volume = float(data['Volume'].iloc[-1]) if not data.empty else 0
     
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -371,11 +342,11 @@ def display_technical_analysis(ticker, data):
     # Analisis sinyal
     st.subheader("Interpretasi Teknikal")
     
-    # Ambil nilai sebagai float dengan cara yang benar
-    last_rsi = data['RSI'].iloc[-1] if not data.empty else 0
-    close_last = data['Close'].iloc[-1] if not data.empty else 0
-    ma50_last = data['MA50'].iloc[-1] if not data.empty and not pd.isna(data['MA50'].iloc[-1]) else 0
-    ma200_last = data['MA200'].iloc[-1] if not data.empty and not pd.isna(data['MA200'].iloc[-1]) else 0
+    # Konversi ke float secara eksplisit
+    last_rsi = float(data['RSI'].iloc[-1]) if not data.empty else 0
+    close_last = float(data['Close'].iloc[-1]) if not data.empty else 0
+    ma50_last = float(data['MA50'].iloc[-1]) if not data.empty and not pd.isna(data['MA50'].iloc[-1]) else 0
+    ma200_last = float(data['MA200'].iloc[-1]) if not data.empty and not pd.isna(data['MA200'].iloc[-1]) else 0
     
     # Cek apakah cukup data untuk analisis
     if len(data) < 200:
@@ -435,16 +406,16 @@ def compute_rsi(prices, window=14):
     rsi = 100 - (100 / (1 + rs))
     return rsi
 
-# Fungsi hitung support & resistance
+# Fungsi hitung support & resistance - PERBAIKAN: KONVERSI KE FLOAT
 def calculate_support_resistance(data, window=30):
     if len(data) < window:
         window = len(data)
     
     try:
-        # PERBAIKAN: Hapus float() karena nilai sudah numerik
-        high = data['High'].iloc[-window:].max()
-        low = data['Low'].iloc[-window:].min()
-        close = data['Close'].iloc[-1]
+        # Konversi ke float secara eksplisit
+        high = float(data['High'].iloc[-window:].max())
+        low = float(data['Low'].iloc[-window:].min())
+        close = float(data['Close'].iloc[-1])
         
         pivot = (high + low + close) / 3
         support = pivot * 2 - high
@@ -523,8 +494,9 @@ def display_stock_screener(api_source, api_key):
         """)
     else:
         st.warning("Tidak ada saham yang memenuhi kriteria filter")
+
 def display_investment_recommendations():
-    st.header("\ud83d\udccc Rekomendasi Saham Berdasarkan Time Horizon")
+    st.header("📍 Rekomendasi Saham Berdasarkan Time Horizon")
     st.info("Rekomendasi saham berdasarkan horizon waktu dan profil risiko Anda")
 
     # Input profil risiko
@@ -552,19 +524,19 @@ def display_investment_recommendations():
         df = df[df['EPS Growth'] > 20]
 
     # Segmentasi berdasarkan horizon investasi
-    st.subheader("\ud83c\udf10 Jangka Pendek (< 3 bulan)")
+    st.subheader("🌱 Jangka Pendek (< 3 bulan)")
     short_term = df[(df['EPS Growth'] > 10) & (df['PER'] < 25)]
     st.dataframe(short_term, use_container_width=True)
 
-    st.subheader("\u23f2\ufe0f Jangka Menengah (3-12 bulan)")
+    st.subheader("⏳ Jangka Menengah (3-12 bulan)")
     mid_term = df[(df['ROE'] > 15) & (df['Dividend Yield'] > 2)]
     st.dataframe(mid_term, use_container_width=True)
 
-    st.subheader("\ud83c\udf3f Jangka Panjang (> 1 tahun)")
+    st.subheader("🌳 Jangka Panjang (> 1 tahun)")
     long_term = df[(df['Profit Margin'] > 10) & (df['PBV'] < 5)]
     st.dataframe(long_term, use_container_width=True)
 
-    st.caption("\u26a0\ufe0f Data ini simulatif. Untuk akurasi penuh, integrasikan dengan API real-time atau database riset sekuritas.")
+    st.caption("⚠️ Data ini simulatif. Untuk akurasi penuh, integrasikan dengan API real-time atau database riset sekuritas.")
 
 
 if __name__ == "__main__":
