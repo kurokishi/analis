@@ -41,11 +41,43 @@ def main():
         else:
             api_key = None
     
-    # Tab utama
-    tabs = st.tabs(["📊 Profil Saham", "📈 Analisis Fundamental", "📉 Analisis Teknikal", "🔍 Stock Screener"])
+    # Tab utama - SEMUA TAB DITAMBAHKAN SEKALIGUS DI SINI
+    tabs = st.tabs([
+        "📊 Profil Saham", 
+        "📈 Analisis Fundamental", 
+        "📉 Analisis Teknikal", 
+        "🔍 Stock Screener",
+        "📍 Rekomendasi Time Horizon"  # Tab baru langsung ditambahkan
+    ])
     
     # Ambil data
     stock_data = fetch_stock_data(ticker)
+    
+    # Tab 1: Profil Saham
+    with tabs[0]:
+        if not stock_data.empty:
+            display_stock_profile(ticker, stock_data)
+        else:
+            st.error(f"Data untuk {ticker} tidak ditemukan")
+    
+    # Tab 2: Analisis Fundamental
+    with tabs[1]:
+        display_fundamental_analysis(ticker, api_source, api_key)
+    
+    # Tab 3: Analisis Teknikal
+    with tabs[2]:
+        if not stock_data.empty:
+            display_technical_analysis(ticker, stock_data)
+        else:
+            st.error(f"Data untuk {ticker} tidak cukup untuk analisis teknikal")
+    
+    # Tab 4: Stock Screener
+    with tabs[3]:
+        display_stock_screener(api_source, api_key)
+        
+    # Tab 5: Rekomendasi Time Horizon
+    with tabs[4]:
+        display_investment_recommendations()
     
     # Tab 1: Profil Saham
     with tabs[0]:
@@ -108,10 +140,10 @@ def display_stock_profile(ticker, data):
     stock = yf.Ticker(ticker)
     info = stock.info
     
-    # Konversi ke float dengan cara yang benar
-    last_close = float(data['Close'].iloc[-1]) if not data.empty else 0
-    prev_close = float(data['Close'].iloc[-2]) if len(data) >= 2 else 0
-    volume = float(data['Volume'].iloc[-1]) if not data.empty else 0
+    # PERBAIKAN: Hapus float() karena nilai sudah numerik
+    last_close = data['Close'].iloc[-1] if not data.empty else 0
+    prev_close = data['Close'].iloc[-2] if len(data) >= 2 else 0
+    volume = data['Volume'].iloc[-1] if not data.empty else 0
     
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -340,10 +372,10 @@ def display_technical_analysis(ticker, data):
     st.subheader("Interpretasi Teknikal")
     
     # Ambil nilai sebagai float dengan cara yang benar
-    last_rsi = float(data['RSI'].iloc[-1]) if not data.empty else 0
-    close_last = float(data['Close'].iloc[-1]) if not data.empty else 0
-    ma50_last = float(data['MA50'].iloc[-1]) if not data.empty and not pd.isna(data['MA50'].iloc[-1]) else 0
-    ma200_last = float(data['MA200'].iloc[-1]) if not data.empty and not pd.isna(data['MA200'].iloc[-1]) else 0
+    last_rsi = data['RSI'].iloc[-1] if not data.empty else 0
+    close_last = data['Close'].iloc[-1] if not data.empty else 0
+    ma50_last = data['MA50'].iloc[-1] if not data.empty and not pd.isna(data['MA50'].iloc[-1]) else 0
+    ma200_last = data['MA200'].iloc[-1] if not data.empty and not pd.isna(data['MA200'].iloc[-1]) else 0
     
     # Cek apakah cukup data untuk analisis
     if len(data) < 200:
@@ -408,11 +440,11 @@ def calculate_support_resistance(data, window=30):
     if len(data) < window:
         window = len(data)
     
-    # Ambil nilai float secara eksplisit
     try:
-        high = float(data['High'].iloc[-window:].max())
-        low = float(data['Low'].iloc[-window:].min())
-        close = float(data['Close'].iloc[-1])
+        # PERBAIKAN: Hapus float() karena nilai sudah numerik
+        high = data['High'].iloc[-window:].max()
+        low = data['Low'].iloc[-window:].min()
+        close = data['Close'].iloc[-1]
         
         pivot = (high + low + close) / 3
         support = pivot * 2 - high
