@@ -3,8 +3,6 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from alpha_vantage.fundamentaldata import FundamentalData
-from alpha_vantage.techindicators import TechIndicators
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
@@ -25,6 +23,7 @@ def main():
     .technical { background-color: #fff7e6; }
     .screener { background-color: #e6ffe6; }
     .error { background-color: #ffebee; }
+    .api-option { margin-bottom: 10px; }
     </style>
     """, unsafe_allow_html=True)
     
@@ -33,16 +32,13 @@ def main():
     with col1:
         ticker = st.text_input("Masukkan Kode Saham (Contoh: BBCA.JK, AAPL):", "BBCA.JK").upper()
     with col2:
-        api_key = st.text_input("Masukkan Alpha Vantage API Key:", type="password")
+        api_source = st.selectbox("Pilih Sumber Data Fundamental:", 
+                                ["Yahoo Finance", "Alpha Vantage", "Financial Modeling Prep"])
+        
+        api_key = st.text_input(f"Masukkan API Key {api_source} (opsional):", type="password")
     
     # Tab utama
     tabs = st.tabs(["📊 Profil Saham", "📈 Analisis Fundamental", "📉 Analisis Teknikal", "🔍 Stock Screener"])
-    
-    if not api_key:
-        st.warning("API Key Alpha Vantage diperlukan untuk analisis fundamental")
-        use_alpha_vantage = False
-    else:
-        use_alpha_vantage = True
     
     # Ambil data
     stock_data = fetch_stock_data(ticker)
@@ -56,10 +52,7 @@ def main():
     
     # Tab 2: Analisis Fundamental
     with tabs[1]:
-        if use_alpha_vantage:
-            display_fundamental_analysis(ticker, api_key)
-        else:
-            st.warning("Masukkan API Key untuk melihat analisis fundamental")
+        display_fundamental_analysis(ticker, api_source, api_key)
     
     # Tab 3: Analisis Teknikal
     with tabs[2]:
@@ -70,7 +63,7 @@ def main():
     
     # Tab 4: Stock Screener
     with tabs[3]:
-        display_stock_screener(api_key)
+        display_stock_screener(api_source, api_key)
 
 # Fungsi ambil data saham
 def fetch_stock_data(ticker):
@@ -94,7 +87,7 @@ def fetch_stock_data(ticker):
         st.error(f"Error mengambil data: {str(e)}")
         return pd.DataFrame()
 
-# Fungsi tampilkan profil saham - PERBAIKAN UTAMA
+# Fungsi tampilkan profil saham
 def display_stock_profile(ticker, data):
     if data.empty or len(data) < 2:
         st.error("Data tidak cukup untuk menampilkan profil saham")
@@ -104,14 +97,14 @@ def display_stock_profile(ticker, data):
     stock = yf.Ticker(ticker)
     info = stock.info
     
-    # PERBAIKAN: Konversi ke float dengan cara yang benar
+    # Konversi ke float dengan cara yang benar
     last_close = float(data['Close'].iloc[-1]) if not data.empty else 0
     prev_close = float(data['Close'].iloc[-2]) if len(data) >= 2 else 0
     volume = float(data['Volume'].iloc[-1]) if not data.empty else 0
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        currency = "Rp" if '.' in ticker else "Rp"
+        currency = "$" if '.' in ticker else "Rp"
         st.metric("Harga Terakhir", f"{currency}{last_close:.2f}")
         
         change_pct = ((last_close - prev_close) / prev_close * 100) if prev_close != 0 else 0
@@ -121,7 +114,7 @@ def display_stock_profile(ticker, data):
         st.metric("Volume", f"{volume:,.0f}")
         market_cap = info.get('marketCap', 'N/A')
         if isinstance(market_cap, (int, float)):
-            st.metric("Market Cap", f"Rp{market_cap/1e9:.2f}B" if market_cap > 1e9 else f"Rp{market_cap/1e6:.2f}M")
+            st.metric("Market Cap", f"${market_cap/1e9:.2f}B" if market_cap > 1e9 else f"${market_cap/1e6:.2f}M")
         else:
             st.metric("Market Cap", "N/A")
     
@@ -142,12 +135,87 @@ def display_stock_profile(ticker, data):
                     xaxis_rangeslider_visible=False)
     st.plotly_chart(fig, use_container_width=True)
 
-# Fungsi analisis fundamental
-# Fungsi analisis fundamental
-def display_fundamental_analysis(ticker, api_key):
+# Fungsi analisis fundamental yang mendukung multiple API
+def display_fundamental_analysis(ticker, api_source, api_key=None):
     st.subheader("Analisis Fundamental")
     
+    if api_source == "Alpha Vantage" and not api_key:
+        st.warning("API Key diperlukan untuk Alpha Vantage")
+        return
+    
     try:
+        if api_source == "Yahoo Finance":
+            display_yfinance_fundamental(ticker)
+        elif api_source == "Alpha Vantage":
+            display_alpha_vantage_fundamental(ticker, api_key)
+        elif api_source == "Financial Modeling Prep":
+            display_fmp_fundamental(ticker, api_key)
+        else:
+            st.warning("Sumber data tidak didukung")
+    except Exception as e:
+        st.error(f"Terjadi kesalahan: {str(e)}")
+
+# Fungsi fundamental dengan Yahoo Finance
+def display_yfinance_fundamental(ticker):
+    try:
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        
+        # Tampilkan metrik utama dari Yahoo Finance
+        cols = st.columns(4)
+        metrics = [
+            ('PER', 'trailingPE', 'x'),
+            ('PBV', 'priceToBook', 'x'),
+            ('ROE', 'returnOnEquity', '%'),
+            ('Dividend Yield', 'dividendYield', '%'),
+            ('EPS', 'trailingEps', ''),
+            ('DER', 'debtToEquity', 'x'),
+            ('Profit Margin', 'profitMargins', '%'),
+            ('Pertumbuhan Laba', 'earningsQuarterlyGrowth', '%')
+        ]
+        
+        for i, (name, key, unit) in enumerate(metrics):
+            value = info.get(key, 'N/A')
+            if value != 'N/A' and isinstance(value, (int, float)):
+                cols[i%4].metric(name, f"{value:.2f}{unit}")
+            else:
+                cols[i%4].metric(name, "N/A")
+        
+        # Analisis kualitatif
+        st.subheader("Analisis Kualitatif")
+        description = info.get('longBusinessSummary', 'N/A')
+        st.write(f"**Deskripsi Perusahaan:** {description[:500]}{'...' if len(description) > 500 else ''}")
+        
+        # Rekomendasi valuasi
+        st.subheader("Rekomendasi Valuasi")
+        per_value = info.get('trailingPE', 'N/A')
+        if per_value != 'N/A' and isinstance(per_value, (int, float)):
+            per = float(per_value)
+            status = "Undervalued" if per < 15 else "Overvalued" if per > 25 else "Fair Value"
+            st.markdown(f"""
+            <div class="metric-card fundamental">
+                <h3>Valuasi: {status}</h3>
+                <p>Berdasarkan PER (Current: {per:.2f}x):</p>
+                <ul>
+                    <li>PER &lt; 15: Undervalued</li>
+                    <li>PER 15-25: Fair Value</li>
+                    <li>PER &gt; 25: Overvalued</li>
+                </ul>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.warning("Data PER tidak tersedia untuk valuasi")
+            
+        st.info("Sumber data: Yahoo Finance (gratis, tanpa API Key)")
+    
+    except Exception as e:
+        st.error(f"Error mengambil data dari Yahoo Finance: {str(e)}")
+
+# Fungsi fundamental dengan Alpha Vantage
+def display_alpha_vantage_fundamental(ticker, api_key):
+    try:
+        from alpha_vantage.fundamentaldata import FundamentalData
+        
         # Bersihkan ticker: hilangkan suffix .JK atau pasar lainnya
         clean_ticker = ticker.split('.')[0]
         
@@ -206,6 +274,8 @@ def display_fundamental_analysis(ticker, api_key):
             """, unsafe_allow_html=True)
         else:
             st.warning("Data PER tidak tersedia untuk valuasi")
+            
+        st.info("Sumber data: Alpha Vantage")
     
     except ValueError as e:
         if "Invalid API call" in str(e):
@@ -217,8 +287,50 @@ def display_fundamental_analysis(ticker, api_key):
         st.error("Format respons API tidak dikenali. Mungkin terjadi perubahan pada Alpha Vantage API.")
     except Exception as e:
         st.error(f"Error fetching fundamental data: {str(e)}")
+
+# Fungsi fundamental dengan Financial Modeling Prep (contoh)
+def display_fmp_fundamental(ticker, api_key):
+    if not api_key:
+        st.warning("API Key diperlukan untuk Financial Modeling Prep")
+        return
         
-# Fungsi analisis teknikal - PERBAIKAN UTAMA
+    st.info("""
+    **Contoh integrasi Financial Modeling Prep**
+    
+    Untuk implementasi nyata, Anda perlu:
+    1. Daftar di https://financialmodelingprep.com/developer
+    2. Dapatkan API Key gratis
+    3. Gunakan endpoint seperti:
+       - https://financialmodelingprep.com/api/v3/profile/{ticker}?apikey={api_key}
+       - https://financialmodelingprep.com/api/v3/ratios-ttm/{ticker}?apikey={api_key}
+    """)
+    
+    st.warning("Implementasi aktual memerlukan kode tambahan untuk menghubungi API Financial Modeling Prep")
+    
+    # Contoh kode untuk implementasi nyata:
+    """
+    import requests
+    
+    # Ambil data profil perusahaan
+    profile_url = f"https://financialmodelingprep.com/api/v3/profile/{ticker}?apikey={api_key}"
+    profile_response = requests.get(profile_url)
+    profile_data = profile_response.json()[0] if profile_response.status_code == 200 else {}
+    
+    # Ambil rasio keuangan
+    ratios_url = f"https://financialmodelingprep.com/api/v3/ratios-ttm/{ticker}?apikey={api_key}"
+    ratios_response = requests.get(ratios_url)
+    ratios_data = ratios_response.json()[0] if ratios_response.status_code == 200 else {}
+    
+    # Tampilkan data
+    if profile_data and ratios_data:
+        cols = st.columns(3)
+        cols[0].metric("PER", f"{ratios_data.get('priceEarningsRatioTTM', 'N/A'):.2f}x")
+        cols[1].metric("PBV", f"{ratios_data.get('priceToBookRatioTTM', 'N/A'):.2f}x")
+        cols[2].metric("ROE", f"{ratios_data.get('returnOnEquityTTM', 'N/A'):.2f}%")
+        # ... dan seterusnya
+    """
+
+# Fungsi analisis teknikal
 def display_technical_analysis(ticker, data):
     st.subheader("Analisis Teknikal")
     
@@ -258,7 +370,7 @@ def display_technical_analysis(ticker, data):
     # Analisis sinyal
     st.subheader("Interpretasi Teknikal")
     
-    # PERBAIKAN: Ambil nilai sebagai float dengan cara yang benar
+    # Ambil nilai sebagai float dengan cara yang benar
     last_rsi = float(data['RSI'].iloc[-1]) if not data.empty else 0
     close_last = float(data['Close'].iloc[-1]) if not data.empty else 0
     ma50_last = float(data['MA50'].iloc[-1]) if not data.empty and not pd.isna(data['MA50'].iloc[-1]) else 0
@@ -268,7 +380,7 @@ def display_technical_analysis(ticker, data):
     if len(data) < 200:
         st.warning("Data historis kurang dari 200 hari, analisis teknikal mungkin tidak akurat")
     
-    # PERBAIKAN: Pisahkan kondisi menjadi dua bagian
+    # Pisahkan kondisi menjadi dua bagian
     trend = "Bullish" 
     if len(data) >= 200 and not pd.isna(ma50_last) and not pd.isna(ma200_last):
         if close_last > ma50_last and ma50_last > ma200_last:
@@ -286,7 +398,6 @@ def display_technical_analysis(ticker, data):
         st.markdown(f"<div class='metric-card technical'><h4>RSI</h4><h2>{last_rsi:.2f} - {rsi_status}</h2></div>", unsafe_allow_html=True)
     with col3:
         if len(data) >= 200 and not pd.isna(ma50_last) and not pd.isna(ma200_last):
-            # PERBAIKAN: Gunakan nilai yang sudah diambil
             ma_status = "Golden Cross" if ma50_last > ma200_last else "Death Cross"
             st.markdown(f"<div class='metric-card technical'><h4>MA Cross</h4><h2>{ma_status}</h2></div>", unsafe_allow_html=True)
         else:
@@ -297,7 +408,7 @@ def display_technical_analysis(ticker, data):
     support, resistance = calculate_support_resistance(data)
     currency = "$" if '.' in ticker else "Rp"
     
-    # PERBAIKAN: Pastikan nilai float
+    # Pastikan nilai float
     try:
         support_val = float(support)
         resistance_val = float(resistance)
@@ -323,12 +434,12 @@ def compute_rsi(prices, window=14):
     rsi = 100 - (100 / (1 + rs))
     return rsi
 
-# Fungsi hitung support & resistance - PERBAIKAN UTAMA
+# Fungsi hitung support & resistance
 def calculate_support_resistance(data, window=30):
     if len(data) < window:
         window = len(data)
     
-    # PERBAIKAN: Ambil nilai float secara eksplisit
+    # Ambil nilai float secara eksplisit
     try:
         high = float(data['High'].iloc[-window:].max())
         low = float(data['Low'].iloc[-window:].min())
@@ -343,7 +454,7 @@ def calculate_support_resistance(data, window=30):
         return 0, 0
 
 # Fungsi stock screener
-def display_stock_screener(api_key):
+def display_stock_screener(api_source, api_key):
     st.subheader("Stock Screener")
     st.info("Fitur ini menggunakan data contoh. Untuk implementasi nyata, hubungkan ke API penyedia data saham.")
     
