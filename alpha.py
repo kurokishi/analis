@@ -2,10 +2,10 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import requests
+import time
 
 # Konfigurasi aplikasi
 st.set_page_config(
@@ -25,6 +25,9 @@ def main():
     .screener { background-color: #e6ffe6; }
     .error { background-color: #ffebee; }
     .api-option { margin-bottom: 10px; }
+    .stocks-table { font-size: 0.9rem; }
+    .positive { color: green; }
+    .negative { color: red; }
     </style>
     """, unsafe_allow_html=True)
     
@@ -38,6 +41,7 @@ def main():
         
         if api_source == "Financial Modeling Prep":
             api_key = st.text_input("Masukkan Financial Modeling Prep API Key:", type="password")
+            st.session_state.fmp_api_key = api_key
         else:
             api_key = None
     
@@ -101,7 +105,7 @@ def fetch_stock_data(ticker):
         st.error(f"Error mengambil data: {str(e)}")
         return pd.DataFrame()
 
-# Fungsi tampilkan profil saham - PERBAIKAN: KONVERSI KE FLOAT
+# Fungsi tampilkan profil saham
 def display_stock_profile(ticker, data):
     if data.empty or len(data) < 2:
         st.error("Data tidak cukup untuk menampilkan profil saham")
@@ -406,7 +410,7 @@ def compute_rsi(prices, window=14):
     rsi = 100 - (100 / (1 + rs))
     return rsi
 
-# Fungsi hitung support & resistance - PERBAIKAN: KONVERSI KE FLOAT
+# Fungsi hitung support & resistance
 def calculate_support_resistance(data, window=30):
     if len(data) < window:
         window = len(data)
@@ -497,47 +501,202 @@ def display_stock_screener(api_source, api_key):
 
 def display_investment_recommendations():
     st.header("📍 Rekomendasi Saham Berdasarkan Time Horizon")
-    st.info("Rekomendasi saham berdasarkan horizon waktu dan profil risiko Anda")
+    st.info("Rekomendasi saham berdasarkan horizon waktu dan profil risiko Anda menggunakan data real-time")
+    
+    # Input pengguna
+    col1, col2 = st.columns(2)
+    with col1:
+        risk_profile = st.selectbox("Pilih Profil Risiko Anda:", ["Rendah", "Sedang", "Tinggi"])
+    with col2:
+        market = st.selectbox("Pilih Pasar Saham:", ["AS (NYSE/NASDAQ)", "Indonesia (IDX)"])
+    
+    # Daftar saham untuk masing-masing pasar
+    if market == "AS (NYSE/NASDAQ)":
+        tickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'TSLA', 'JPM', 'JNJ', 'PG', 'DIS']
+        market_suffix = ""
+    else:
+        tickers = ['BBCA.JK', 'TLKM.JK', 'BBRI.JK', 'BBNI.JK', 'BMRI.JK', 'ASII.JK', 'UNVR.JK', 'ICBP.JK', 'INDF.JK', 'CPIN.JK']
+        market_suffix = ".JK"
+    
+    # Cek apakah API key tersedia
+    if 'fmp_api_key' in st.session_state and st.session_state.fmp_api_key:
+        api_key = st.session_state.fmp_api_key
+        use_real_data = True
+    else:
+        st.warning("API Key Financial Modeling Prep tidak ditemukan. Menggunakan data contoh.")
+        use_real_data = False
+    
+    # Ambil data saham
+    if use_real_data:
+        with st.spinner('Mengambil data real-time...'):
+            df = fetch_real_time_stock_data(tickers, market, api_key)
+    else:
+        df = generate_sample_data(tickers, market)
+    
+    # Tampilkan data
+    if df is not None:
+        # Filter berdasarkan profil risiko
+        if risk_profile == "Rendah":
+            filtered_df = df[(df['Dividend Yield'] > 2.0) & (df['PER'] < 25)]
+        elif risk_profile == "Sedang":
+            filtered_df = df[(df['ROE'] > 15) & (df['EPS Growth'] > 10)]
+        elif risk_profile == "Tinggi":
+            filtered_df = df[df['EPS Growth'] > 20]
+        
+        # Segmentasi berdasarkan horizon investasi
+        st.subheader("🌱 Jangka Pendek (< 3 bulan)")
+        st.markdown("**Kriteria:** Pertumbuhan laba tinggi (EPS Growth > 10%) dan valuasi wajar (PER < 25)")
+        short_term = filtered_df[(filtered_df['EPS Growth'] > 10) & (filtered_df['PER'] < 25)]
+        display_recommendation_table(short_term, ['Ticker', 'Nama', 'PER', 'EPS Growth', 'Sektor'])
+        
+        st.subheader("⏳ Jangka Menengah (3-12 bulan)")
+        st.markdown("**Kriteria:** Profitabilitas tinggi (ROE > 15%) dan imbal hasil dividen baik (Dividend Yield > 2%)")
+        mid_term = filtered_df[(filtered_df['ROE'] > 15) & (filtered_df['Dividend Yield'] > 2)]
+        display_recommendation_table(mid_term, ['Ticker', 'Nama', 'ROE', 'Dividend Yield', 'Sektor'])
+        
+        st.subheader("🌳 Jangka Panjang (> 1 tahun)")
+        st.markdown("**Kriteria:** Margin laba sehat (Profit Margin > 10%) dan valuasi aset wajar (PBV < 5)")
+        long_term = filtered_df[(filtered_df['Profit Margin'] > 10) & (filtered_df['PBV'] < 5)]
+        display_recommendation_table(long_term, ['Ticker', 'Nama', 'Profit Margin', 'PBV', 'Sektor'])
+        
+        st.caption(f"Sumber data: {'Financial Modeling Prep API' if use_real_data else 'Data Contoh'} - {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    else:
+        st.error("Gagal mengambil data saham. Silakan coba lagi atau gunakan API Key yang valid.")
 
-    # Input profil risiko
-    risk_profile = st.selectbox("Pilih Profil Risiko Anda:", ["Rendah", "Sedang", "Tinggi"])
+def fetch_real_time_stock_data(tickers, market, api_key):
+    """Ambil data real-time dari Financial Modeling Prep API"""
+    data = []
+    
+    for ticker in tickers:
+        try:
+            # Bersihkan ticker untuk API
+            clean_ticker = ticker.replace('.JK', '') if market == "Indonesia (IDX)" else ticker
+            
+            # Ambil data profil perusahaan
+            profile_url = f"https://financialmodelingprep.com/api/v3/profile/{clean_ticker}?apikey={api_key}"
+            profile_response = requests.get(profile_url)
+            profile_data = profile_response.json()
+            
+            if not profile_data or 'Error' in profile_data:
+                st.warning(f"Data tidak ditemukan untuk {ticker}")
+                continue
+            
+            profile = profile_data[0] if isinstance(profile_data, list) else profile_data
+            
+            # Ambil data rasio keuangan
+            ratios_url = f"https://financialmodelingprep.com/api/v3/ratios-ttm/{clean_ticker}?apikey={api_key}"
+            ratios_response = requests.get(ratios_url)
+            ratios_data = ratios_response.json()
+            
+            if not ratios_data or 'Error' in ratios_data:
+                st.warning(f"Rasio keuangan tidak ditemukan untuk {ticker}")
+                ratios = {}
+            else:
+                ratios = ratios_data[0] if isinstance(ratios_data, list) else ratios_data
+            
+            # Ambil data pertumbuhan laba (contoh: 5 tahun terakhir)
+            growth_url = f"https://financialmodelingprep.com/api/v3/income-statement-growth/{clean_ticker}?limit=5&apikey={api_key}"
+            growth_response = requests.get(growth_url)
+            growth_data = growth_response.json()
+            
+            eps_growth = 0
+            if growth_data and isinstance(growth_data, list) and len(growth_data) > 0:
+                # Hitung rata-rata pertumbuhan EPS
+                eps_growth_values = [item.get('growthEps', 0) for item in growth_data if item.get('growthEps') is not None]
+                eps_growth = sum(eps_growth_values) / len(eps_growth_values) if eps_growth_values else 0
+            
+            # Simpan data
+            data.append({
+                'Ticker': ticker,
+                'Nama': profile.get('companyName', ticker),
+                'PER': profile.get('pe', 0),
+                'PBV': profile.get('pb', 0),
+                'ROE': ratios.get('returnOnEquityTTM', 0),
+                'Dividend Yield': profile.get('lastDiv', 0) / profile.get('price', 1) * 100 if profile.get('lastDiv') and profile.get('price') else 0,
+                'EPS Growth': eps_growth,
+                'Profit Margin': ratios.get('profitMarginTTM', 0),
+                'Sektor': profile.get('sector', 'N/A')
+            })
+            
+            # Jeda untuk menghindari rate limit
+            time.sleep(0.2)
+            
+        except Exception as e:
+            st.error(f"Error mengambil data untuk {ticker}: {str(e)}")
+            continue
+    
+    if not data:
+        return None
+    
+    return pd.DataFrame(data)
 
-    # Dataset saham contoh (sebaiknya diganti API nyata untuk live)
-    df = pd.DataFrame({
-        'Ticker': ['BBCA.JK', 'TLKM.JK', 'AAPL', 'MSFT', 'GOTO.JK', 'UNVR.JK'],
-        'Nama': ['Bank BCA', 'Telkom', 'Apple', 'Microsoft', 'GoTo', 'Unilever'],
-        'PER': [18.5, 15.2, 28.3, 32.1, 200.0, 30.5],
-        'PBV': [3.2, 2.5, 12.1, 15.0, 5.0, 18.4],
-        'ROE': [22.3, 18.7, 40.5, 35.2, -15.0, 25.9],
-        'Dividend Yield': [2.8, 3.2, 0.6, 0.8, 0.0, 3.8],
-        'EPS Growth': [14.5, 12.3, 25.7, 18.4, 40.1, 12.7],
-        'Profit Margin': [30.2, 18.3, 21.5, 25.4, -20.0, 15.8],
-        'Sektor': ['Keuangan', 'Komunikasi', 'Teknologi', 'Teknologi', 'Teknologi', 'Konsumsi']
+def generate_sample_data(tickers, market):
+    """Hasilkan data contoh jika API tidak tersedia"""
+    if market == "AS (NYSE/NASDAQ)":
+        names = ['Apple Inc', 'Microsoft', 'Alphabet', 'Amazon', 'Meta', 'Tesla', 'JPMorgan', 'Johnson & Johnson', 'Procter & Gamble', 'Disney']
+        sectors = ['Teknologi', 'Teknologi', 'Teknologi', 'E-commerce', 'Teknologi', 'Otomotif', 'Keuangan', 'Kesehatan', 'Konsumsi', 'Hiburan']
+    else:
+        names = ['Bank BCA', 'Telkom', 'Bank BRI', 'Bank BNI', 'Bank Mandiri', 'Astra International', 'Unilever', 'Indofood', 'Chicken', 'Charoen']
+        sectors = ['Keuangan', 'Komunikasi', 'Keuangan', 'Keuangan', 'Keuangan', 'Otomotif', 'Konsumsi', 'Konsumsi', 'Peternakan', 'Peternakan']
+    
+    # Buat data secara acak dengan distribusi yang masuk akal
+    np.random.seed(42)
+    size = len(tickers)
+    
+    return pd.DataFrame({
+        'Ticker': tickers,
+        'Nama': names,
+        'PER': np.random.uniform(5, 40, size).round(1),
+        'PBV': np.random.uniform(0.5, 10, size).round(1),
+        'ROE': np.random.uniform(5, 40, size).round(1),
+        'Dividend Yield': np.random.uniform(0, 8, size).round(1),
+        'EPS Growth': np.random.uniform(-10, 50, size).round(1),
+        'Profit Margin': np.random.uniform(5, 35, size).round(1),
+        'Sektor': sectors
     })
 
-    # Filter berdasarkan profil risiko
-    if risk_profile == "Rendah":
-        df = df[(df['Dividend Yield'] > 2.0) & (df['PER'] < 25)]
-    elif risk_profile == "Sedang":
-        df = df[(df['ROE'] > 15) & (df['EPS Growth'] > 10)]
-    elif risk_profile == "Tinggi":
-        df = df[df['EPS Growth'] > 20]
-
-    # Segmentasi berdasarkan horizon investasi
-    st.subheader("🌱 Jangka Pendek (< 3 bulan)")
-    short_term = df[(df['EPS Growth'] > 10) & (df['PER'] < 25)]
-    st.dataframe(short_term, use_container_width=True)
-
-    st.subheader("⏳ Jangka Menengah (3-12 bulan)")
-    mid_term = df[(df['ROE'] > 15) & (df['Dividend Yield'] > 2)]
-    st.dataframe(mid_term, use_container_width=True)
-
-    st.subheader("🌳 Jangka Panjang (> 1 tahun)")
-    long_term = df[(df['Profit Margin'] > 10) & (df['PBV'] < 5)]
-    st.dataframe(long_term, use_container_width=True)
-
-    st.caption("⚠️ Data ini simulatif. Untuk akurasi penuh, integrasikan dengan API real-time atau database riset sekuritas.")
-
+def display_recommendation_table(df, columns):
+    """Tampilkan tabel rekomendasi dengan styling"""
+    if not df.empty:
+        # Urutkan berdasarkan kinerja
+        sort_column = columns[2]  # Kolom ketiga biasanya metrik utama
+        df = df.sort_values(by=sort_column, ascending=False)
+        
+        # Format kolom
+        styled_df = df[columns].copy()
+        
+        # Tambahkan warna berdasarkan nilai
+        def color_positive_green(val):
+            color = 'green' if val > 0 else 'red' if val < 0 else 'black'
+            return f'color: {color}'
+        
+        # Terapkan styling
+        if 'EPS Growth' in styled_df.columns:
+            styled_df = styled_df.style.applymap(color_positive_green, subset=['EPS Growth'])
+        if 'ROE' in styled_df.columns:
+            styled_df = styled_df.format({'ROE': '{:.1f}%', 'Dividend Yield': '{:.1f}%'})
+        
+        st.dataframe(styled_df, use_container_width=True)
+        
+        # Rekomendasi teratas
+        top_pick = df.iloc[0]
+        st.success(f"**Top Pick:** {top_pick['Ticker']} - {top_pick['Nama']}")
+        
+        # Analisis singkat
+        analysis = f"""
+        - **Sektor:** {top_pick['Sektor']}
+        - **PER:** {top_pick.get('PER', 'N/A'):.1f}
+        - **ROE:** {top_pick.get('ROE', 'N/A'):.1f}%
+        - **Dividend Yield:** {top_pick.get('Dividend Yield', 'N/A'):.1f}%
+        - **Pertumbuhan EPS:** {top_pick.get('EPS Growth', 'N/A'):.1f}%
+        """
+        st.markdown(analysis)
+    else:
+        st.warning("Tidak ada saham yang memenuhi kriteria untuk horizon waktu ini")
 
 if __name__ == "__main__":
+    # Simpan API key di session state jika ada
+    if 'fmp_api_key' not in st.session_state:
+        st.session_state.fmp_api_key = None
+    
     main()
