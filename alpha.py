@@ -68,6 +68,13 @@ def main():
     # Tab 4: Stock Screener
     with tabs[3]:
         display_stock_screener(api_source, api_key)
+        
+# === TAB BARU UNTUK INVESTASI BERDASARKAN HORIZON ===
+    tabs.append(st.tab("\ud83d\udccc Rekomendasi Time Horizon"))
+
+    # Tab 5: Rekomendasi Time Horizon
+    with tabs[4]:
+        display_investment_recommendations()
 
 # Fungsi ambil data saham
 def fetch_stock_data(ticker):
@@ -484,6 +491,49 @@ def display_stock_screener(api_source, api_key):
         """)
     else:
         st.warning("Tidak ada saham yang memenuhi kriteria filter")
+def display_investment_recommendations():
+    st.header("\ud83d\udccc Rekomendasi Saham Berdasarkan Time Horizon")
+    st.info("Rekomendasi saham berdasarkan horizon waktu dan profil risiko Anda")
+
+    # Input profil risiko
+    risk_profile = st.selectbox("Pilih Profil Risiko Anda:", ["Rendah", "Sedang", "Tinggi"])
+
+    # Dataset saham contoh (sebaiknya diganti API nyata untuk live)
+    df = pd.DataFrame({
+        'Ticker': ['BBCA.JK', 'TLKM.JK', 'AAPL', 'MSFT', 'GOTO.JK', 'UNVR.JK'],
+        'Nama': ['Bank BCA', 'Telkom', 'Apple', 'Microsoft', 'GoTo', 'Unilever'],
+        'PER': [18.5, 15.2, 28.3, 32.1, 200.0, 30.5],
+        'PBV': [3.2, 2.5, 12.1, 15.0, 5.0, 18.4],
+        'ROE': [22.3, 18.7, 40.5, 35.2, -15.0, 25.9],
+        'Dividend Yield': [2.8, 3.2, 0.6, 0.8, 0.0, 3.8],
+        'EPS Growth': [14.5, 12.3, 25.7, 18.4, 40.1, 12.7],
+        'Profit Margin': [30.2, 18.3, 21.5, 25.4, -20.0, 15.8],
+        'Sektor': ['Keuangan', 'Komunikasi', 'Teknologi', 'Teknologi', 'Teknologi', 'Konsumsi']
+    })
+
+    # Filter berdasarkan profil risiko
+    if risk_profile == "Rendah":
+        df = df[(df['Dividend Yield'] > 2.0) & (df['PER'] < 25)]
+    elif risk_profile == "Sedang":
+        df = df[(df['ROE'] > 15) & (df['EPS Growth'] > 10)]
+    elif risk_profile == "Tinggi":
+        df = df[df['EPS Growth'] > 20]
+
+    # Segmentasi berdasarkan horizon investasi
+    st.subheader("\ud83c\udf10 Jangka Pendek (< 3 bulan)")
+    short_term = df[(df['EPS Growth'] > 10) & (df['PER'] < 25)]
+    st.dataframe(short_term, use_container_width=True)
+
+    st.subheader("\u23f2\ufe0f Jangka Menengah (3-12 bulan)")
+    mid_term = df[(df['ROE'] > 15) & (df['Dividend Yield'] > 2)]
+    st.dataframe(mid_term, use_container_width=True)
+
+    st.subheader("\ud83c\udf3f Jangka Panjang (> 1 tahun)")
+    long_term = df[(df['Profit Margin'] > 10) & (df['PBV'] < 5)]
+    st.dataframe(long_term, use_container_width=True)
+
+    st.caption("\u26a0\ufe0f Data ini simulatif. Untuk akurasi penuh, integrasikan dengan API real-time atau database riset sekuritas.")
+
 
 if __name__ == "__main__":
     main()
