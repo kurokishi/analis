@@ -115,10 +115,10 @@ def display_stock_profile(ticker, data):
     stock = yf.Ticker(ticker)
     info = stock.info
     
-    # Konversi ke float secara eksplisit
-    last_close = float(data['Close'].iloc[-1]) if not data.empty else 0
-    prev_close = float(data['Close'].iloc[-2]) if len(data) >= 2 else 0
-    volume = float(data['Volume'].iloc[-1]) if not data.empty else 0
+    # Ambil nilai langsung tanpa konversi float
+    last_close = data['Close'].iloc[-1] if not data.empty else 0
+    prev_close = data['Close'].iloc[-2] if len(data) >= 2 else 0
+    volume = data['Volume'].iloc[-1] if not data.empty else 0
     
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -346,11 +346,11 @@ def display_technical_analysis(ticker, data):
     # Analisis sinyal
     st.subheader("Interpretasi Teknikal")
     
-    # Konversi ke float secara eksplisit
-    last_rsi = float(data['RSI'].iloc[-1]) if not data.empty else 0
-    close_last = float(data['Close'].iloc[-1]) if not data.empty else 0
-    ma50_last = float(data['MA50'].iloc[-1]) if not data.empty and not pd.isna(data['MA50'].iloc[-1]) else 0
-    ma200_last = float(data['MA200'].iloc[-1]) if not data.empty and not pd.isna(data['MA200'].iloc[-1]) else 0
+    # Ambil nilai langsung tanpa konversi float
+    last_rsi = data['RSI'].iloc[-1] if not data.empty else 0
+    close_last = data['Close'].iloc[-1] if not data.empty else 0
+    ma50_last = data['MA50'].iloc[-1] if not data.empty and not pd.isna(data['MA50'].iloc[-1]) else 0
+    ma200_last = data['MA200'].iloc[-1] if not data.empty and not pd.isna(data['MA200'].iloc[-1]) else 0
     
     # Cek apakah cukup data untuk analisis
     if len(data) < 200:
@@ -386,8 +386,8 @@ def display_technical_analysis(ticker, data):
     
     # Pastikan nilai float
     try:
-        support_val = float(support)
-        resistance_val = float(resistance)
+        support_val = support
+        resistance_val = resistance
         st.markdown(f"""
         - **Level Support Utama**: {currency}{support_val:.2f}
         - **Level Resistance Utama**: {currency}{resistance_val:.2f}
@@ -416,10 +416,10 @@ def calculate_support_resistance(data, window=30):
         window = len(data)
     
     try:
-        # Konversi ke float secara eksplisit
-        high = float(data['High'].iloc[-window:].max())
-        low = float(data['Low'].iloc[-window:].min())
-        close = float(data['Close'].iloc[-1])
+        # Ambil nilai langsung
+        high = data['High'].iloc[-window:].max()
+        low = data['Low'].iloc[-window:].min()
+        close = data['Close'].iloc[-1]
         
         pivot = (high + low + close) / 3
         support = pivot * 2 - high
@@ -534,7 +534,7 @@ def display_investment_recommendations():
         df = generate_sample_data(tickers, market)
     
     # Tampilkan data
-    if df is not None:
+    if df is not None and not df.empty:
         # Filter berdasarkan profil risiko
         if risk_profile == "Rendah":
             filtered_df = df[(df['Dividend Yield'] > 2.0) & (df['PER'] < 25)]
@@ -542,6 +542,8 @@ def display_investment_recommendations():
             filtered_df = df[(df['ROE'] > 15) & (df['EPS Growth'] > 10)]
         elif risk_profile == "Tinggi":
             filtered_df = df[df['EPS Growth'] > 20]
+        else:
+            filtered_df = df
         
         # Segmentasi berdasarkan horizon investasi
         st.subheader("🌱 Jangka Pendek (< 3 bulan)")
@@ -560,6 +562,8 @@ def display_investment_recommendations():
         display_recommendation_table(long_term, ['Ticker', 'Nama', 'Profit Margin', 'PBV', 'Sektor'])
         
         st.caption(f"Sumber data: {'Financial Modeling Prep API' if use_real_data else 'Data Contoh'} - {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    elif df is not None and df.empty:
+        st.warning("Tidak ada data saham yang ditemukan")
     else:
         st.error("Gagal mengambil data saham. Silakan coba lagi atau gunakan API Key yang valid.")
 
@@ -603,7 +607,7 @@ def fetch_real_time_stock_data(tickers, market, api_key):
             if growth_data and isinstance(growth_data, list) and len(growth_data) > 0:
                 # Hitung rata-rata pertumbuhan EPS
                 eps_growth_values = [item.get('growthEps', 0) for item in growth_data if item.get('growthEps') is not None]
-                eps_growth = sum(eps_growth_values) / len(eps_growth_values) if eps_growth_values else 0
+                eps_growth = sum(eps_growth_values) / len(eps_growth_values) * 100 if eps_growth_values else 0
             
             # Simpan data
             data.append({
@@ -611,10 +615,10 @@ def fetch_real_time_stock_data(tickers, market, api_key):
                 'Nama': profile.get('companyName', ticker),
                 'PER': profile.get('pe', 0),
                 'PBV': profile.get('pb', 0),
-                'ROE': ratios.get('returnOnEquityTTM', 0),
+                'ROE': ratios.get('returnOnEquityTTM', 0) * 100 if ratios.get('returnOnEquityTTM') else 0,
                 'Dividend Yield': profile.get('lastDiv', 0) / profile.get('price', 1) * 100 if profile.get('lastDiv') and profile.get('price') else 0,
                 'EPS Growth': eps_growth,
-                'Profit Margin': ratios.get('profitMarginTTM', 0),
+                'Profit Margin': ratios.get('profitMarginTTM', 0) * 100 if ratios.get('profitMarginTTM') else 0,
                 'Sektor': profile.get('sector', 'N/A')
             })
             
@@ -662,20 +666,24 @@ def display_recommendation_table(df, columns):
         sort_column = columns[2]  # Kolom ketiga biasanya metrik utama
         df = df.sort_values(by=sort_column, ascending=False)
         
-        # Format kolom
+        # Buat salinan DataFrame untuk styling
         styled_df = df[columns].copy()
         
-        # Tambahkan warna berdasarkan nilai
-        def color_positive_green(val):
-            color = 'green' if val > 0 else 'red' if val < 0 else 'black'
-            return f'color: {color}'
-        
-        # Terapkan styling
-        if 'EPS Growth' in styled_df.columns:
-            styled_df = styled_df.style.applymap(color_positive_green, subset=['EPS Growth'])
+        # Format kolom numerik
         if 'ROE' in styled_df.columns:
-            styled_df = styled_df.format({'ROE': '{:.1f}%', 'Dividend Yield': '{:.1f}%'})
+            styled_df['ROE'] = styled_df['ROE'].apply(lambda x: f"{x:.1f}%")
+        if 'Dividend Yield' in styled_df.columns:
+            styled_df['Dividend Yield'] = styled_df['Dividend Yield'].apply(lambda x: f"{x:.1f}%")
+        if 'EPS Growth' in styled_df.columns:
+            styled_df['EPS Growth'] = styled_df['EPS Growth'].apply(lambda x: f"{x:.1f}%")
+        if 'Profit Margin' in styled_df.columns:
+            styled_df['Profit Margin'] = styled_df['Profit Margin'].apply(lambda x: f"{x:.1f}%")
+        if 'PER' in styled_df.columns:
+            styled_df['PER'] = styled_df['PER'].apply(lambda x: f"{x:.1f}")
+        if 'PBV' in styled_df.columns:
+            styled_df['PBV'] = styled_df['PBV'].apply(lambda x: f"{x:.1f}")
         
+        # Tampilkan tabel
         st.dataframe(styled_df, use_container_width=True)
         
         # Rekomendasi teratas
