@@ -111,7 +111,7 @@ def display_stock_profile(ticker, data):
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        currency = "$" if '.' in ticker else "Rp"
+        currency = "Rp" if '.' in ticker else "Rp"
         st.metric("Harga Terakhir", f"{currency}{last_close:.2f}")
         
         change_pct = ((last_close - prev_close) / prev_close * 100) if prev_close != 0 else 0
@@ -121,7 +121,7 @@ def display_stock_profile(ticker, data):
         st.metric("Volume", f"{volume:,.0f}")
         market_cap = info.get('marketCap', 'N/A')
         if isinstance(market_cap, (int, float)):
-            st.metric("Market Cap", f"${market_cap/1e9:.2f}B" if market_cap > 1e9 else f"${market_cap/1e6:.2f}M")
+            st.metric("Market Cap", f"Rp{market_cap/1e9:.2f}B" if market_cap > 1e9 else f"Rp{market_cap/1e6:.2f}M")
         else:
             st.metric("Market Cap", "N/A")
     
@@ -143,13 +143,23 @@ def display_stock_profile(ticker, data):
     st.plotly_chart(fig, use_container_width=True)
 
 # Fungsi analisis fundamental
+# Fungsi analisis fundamental
 def display_fundamental_analysis(ticker, api_key):
     st.subheader("Analisis Fundamental")
     
     try:
+        # Bersihkan ticker: hilangkan suffix .JK atau pasar lainnya
+        clean_ticker = ticker.split('.')[0]
+        
         # Ambil data dari Alpha Vantage
         fund = FundamentalData(key=api_key, output_format='pandas')
-        data, _ = fund.get_company_overview(symbol=ticker.split('.')[0])
+        data, meta_data = fund.get_company_overview(symbol=clean_ticker)
+        
+        # Periksa apakah data kosong atau tidak valid
+        if data.empty or 'Error Message' in meta_data:
+            st.warning(f"Tidak ada data fundamental untuk {ticker} (clean ticker: {clean_ticker})")
+            st.info("Alpha Vantage hanya menyediakan data untuk saham AS dan beberapa saham internasional terbatas.")
+            return
         
         # Tampilkan metrik utama
         cols = st.columns(4)
@@ -199,13 +209,15 @@ def display_fundamental_analysis(ticker, api_key):
     
     except ValueError as e:
         if "Invalid API call" in str(e):
-            st.warning(f"Data fundamental tidak tersedia untuk {ticker} di Alpha Vantage")
+            st.warning(f"Data fundamental tidak tersedia untuk {ticker} (clean ticker: {clean_ticker}) di Alpha Vantage")
             st.info("Hanya saham AS yang didukung untuk analisis fundamental")
         else:
             st.error(f"Error: {str(e)}")
+    except KeyError:
+        st.error("Format respons API tidak dikenali. Mungkin terjadi perubahan pada Alpha Vantage API.")
     except Exception as e:
         st.error(f"Error fetching fundamental data: {str(e)}")
-
+        
 # Fungsi analisis teknikal - PERBAIKAN UTAMA
 def display_technical_analysis(ticker, data):
     st.subheader("Analisis Teknikal")
