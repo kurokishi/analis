@@ -104,17 +104,17 @@ def display_stock_profile(ticker, data):
     stock = yf.Ticker(ticker)
     info = stock.info
     
-    # PERBAIKAN: Konversi ke float
-    last_close = float(data['Close'].iloc[-1])
-    prev_close = float(data['Close'].iloc[-2])
-    volume = float(data['Volume'].iloc[-1])
+    # PERBAIKAN: Konversi ke float dengan cara yang benar
+    last_close = float(data['Close'].iloc[-1]) if not data.empty else 0
+    prev_close = float(data['Close'].iloc[-2]) if len(data) >= 2 else 0
+    volume = float(data['Volume'].iloc[-1]) if not data.empty else 0
     
     col1, col2, col3 = st.columns(3)
     with col1:
         currency = "$" if '.' in ticker else "Rp"
         st.metric("Harga Terakhir", f"{currency}{last_close:.2f}")
         
-        change_pct = ((last_close - prev_close) / prev_close * 100)
+        change_pct = ((last_close - prev_close) / prev_close * 100) if prev_close != 0 else 0
         st.metric("Perubahan 1 Hari", f"{change_pct:.2f}%", delta_color="inverse")
    
     with col2:
@@ -210,19 +210,25 @@ def display_fundamental_analysis(ticker, api_key):
 def display_technical_analysis(ticker, data):
     st.subheader("Analisis Teknikal")
     
-    if data.empty:
+    if data.empty or len(data) < 50:  # Minimal 50 data untuk MA50
+        st.error(f"Data untuk {ticker} tidak cukup untuk analisis teknikal")
         return
     
     # Hitung indikator teknikal
     data['MA50'] = data['Close'].rolling(window=50).mean()
-    data['MA200'] = data['Close'].rolling(window=200).mean()
+    data['MA200'] = data['Close'].rolling(window=200).mean() if len(data) >= 200 else np.nan
     data['RSI'] = compute_rsi(data['Close'])
     
     # Plot harga dan moving averages
     fig1 = go.Figure()
     fig1.add_trace(go.Scatter(x=data.index, y=data['Close'], name='Harga', line=dict(color='blue')))
-    fig1.add_trace(go.Scatter(x=data.index, y=data['MA50'], name='MA50', line=dict(color='orange')))
-    fig1.add_trace(go.Scatter(x=data.index, y=data['MA200'], name='MA200', line=dict(color='green')))
+    
+    # Hanya tambahkan MA jika ada cukup data
+    if len(data) >= 50:
+        fig1.add_trace(go.Scatter(x=data.index, y=data['MA50'], name='MA50', line=dict(color='orange')))
+    if len(data) >= 200:
+        fig1.add_trace(go.Scatter(x=data.index, y=data['MA200'], name='MA200', line=dict(color='green')))
+    
     fig1.update_layout(title=f"Moving Averages {ticker}",
                       yaxis_title='Harga')
     st.plotly_chart(fig1, use_container_width=True)
@@ -239,12 +245,12 @@ def display_technical_analysis(ticker, data):
     
     # Analisis sinyal
     st.subheader("Interpretasi Teknikal")
-    last_rsi = data['RSI'].iloc[-1]
     
-    # PERBAIKAN: Ambil nilai sebagai float
-    close_last = float(data['Close'].iloc[-1])
-    ma50_last = float(data['MA50'].iloc[-1])
-    ma200_last = float(data['MA200'].iloc[-1])
+    # PERBAIKAN: Ambil nilai sebagai float dengan cara yang benar
+    last_rsi = float(data['RSI'].iloc[-1]) if not data.empty else 0
+    close_last = float(data['Close'].iloc[-1]) if not data.empty else 0
+    ma50_last = float(data['MA50'].iloc[-1]) if not data.empty and not pd.isna(data['MA50'].iloc[-1]) else 0
+    ma200_last = float(data['MA200'].iloc[-1]) if not data.empty and not pd.isna(data['MA200'].iloc[-1]) else 0
     
     # Cek apakah cukup data untuk analisis
     if len(data) < 200:
@@ -252,11 +258,13 @@ def display_technical_analysis(ticker, data):
     
     # PERBAIKAN: Pisahkan kondisi menjadi dua bagian
     trend = "Bullish" 
-    if len(data) >= 200:
+    if len(data) >= 200 and not pd.isna(ma50_last) and not pd.isna(ma200_last):
         if close_last > ma50_last and ma50_last > ma200_last:
             trend = "Bullish"
         else:
             trend = "Bearish"
+    elif len(data) >= 50 and not pd.isna(ma50_last):
+        trend = "Bullish" if close_last > ma50_last else "Bearish"
     
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -265,21 +273,28 @@ def display_technical_analysis(ticker, data):
         rsi_status = "Overbought (>70)" if last_rsi > 70 else "Oversold (<30)" if last_rsi < 30 else "Netral"
         st.markdown(f"<div class='metric-card technical'><h4>RSI</h4><h2>{last_rsi:.2f} - {rsi_status}</h2></div>", unsafe_allow_html=True)
     with col3:
-        if len(data) >= 200:
+        if len(data) >= 200 and not pd.isna(ma50_last) and not pd.isna(ma200_last):
             # PERBAIKAN: Gunakan nilai yang sudah diambil
             ma_status = "Golden Cross" if ma50_last > ma200_last else "Death Cross"
+            st.markdown(f"<div class='metric-card technical'><h4>MA Cross</h4><h2>{ma_status}</h2></div>", unsafe_allow_html=True)
         else:
-            ma_status = "Data tidak cukup"
-        st.markdown(f"<div class='metric-card technical'><h4>MA Cross</h4><h2>{ma_status}</h2></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='metric-card technical'><h4>MA Cross</h4><h2>Data tidak cukup</h2></div>", unsafe_allow_html=True)
     
     # Support & Resistance
     st.subheader("Support & Resistance")
     support, resistance = calculate_support_resistance(data)
     currency = "$" if '.' in ticker else "Rp"
-    st.markdown(f"""
-    - **Level Support Utama**: {currency}{support:.2f}
-    - **Level Resistance Utama**: {currency}{resistance:.2f}
-    """)
+    
+    # PERBAIKAN: Pastikan nilai float
+    try:
+        support_val = float(support)
+        resistance_val = float(resistance)
+        st.markdown(f"""
+        - **Level Support Utama**: {currency}{support_val:.2f}
+        - **Level Resistance Utama**: {currency}{resistance_val:.2f}
+        """)
+    except (TypeError, ValueError):
+        st.error("Tidak dapat menghitung support dan resistance")
 
 # Fungsi perhitungan RSI
 def compute_rsi(prices, window=14):
@@ -296,19 +311,24 @@ def compute_rsi(prices, window=14):
     rsi = 100 - (100 / (1 + rs))
     return rsi
 
-# Fungsi hitung support & resistance
+# Fungsi hitung support & resistance - PERBAIKAN UTAMA
 def calculate_support_resistance(data, window=30):
     if len(data) < window:
         window = len(data)
-        
-    high = data['High'].iloc[-window:].max()
-    low = data['Low'].iloc[-window:].min()
-    close = data['Close'].iloc[-1]
     
-    pivot = (high + low + close) / 3
-    support = pivot * 2 - high
-    resistance = pivot * 2 - low
-    return support, resistance
+    # PERBAIKAN: Ambil nilai float secara eksplisit
+    try:
+        high = float(data['High'].iloc[-window:].max())
+        low = float(data['Low'].iloc[-window:].min())
+        close = float(data['Close'].iloc[-1])
+        
+        pivot = (high + low + close) / 3
+        support = pivot * 2 - high
+        resistance = pivot * 2 - low
+        return support, resistance
+    except Exception as e:
+        print(f"Error calculating support/resistance: {e}")
+        return 0, 0
 
 # Fungsi stock screener
 def display_stock_screener(api_key):
