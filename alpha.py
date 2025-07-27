@@ -5,6 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
+import requests
 
 # Konfigurasi aplikasi
 st.set_page_config(
@@ -30,12 +31,15 @@ def main():
     # Input user
     col1, col2 = st.columns(2)
     with col1:
-        ticker = st.text_input("Masukkan Kode Saham (Contoh: BBCA.JK, AAPL):", "BBCA.JK").upper()
+        ticker = st.text_input("Masukkan Kode Saham (Contoh: BBCA.JK, AAPL):", "AAPL").upper()
     with col2:
         api_source = st.selectbox("Pilih Sumber Data Fundamental:", 
-                                ["Yahoo Finance", "Alpha Vantage", "Financial Modeling Prep"])
+                                ["Yahoo Finance", "Financial Modeling Prep"])
         
-        api_key = st.text_input(f"Masukkan API Key {api_source} (opsional):", type="password")
+        if api_source == "Financial Modeling Prep":
+            api_key = st.text_input("Masukkan Financial Modeling Prep API Key:", type="password")
+        else:
+            api_key = None
     
     # Tab utama
     tabs = st.tabs(["📊 Profil Saham", "📈 Analisis Fundamental", "📉 Analisis Teknikal", "🔍 Stock Screener"])
@@ -139,15 +143,13 @@ def display_stock_profile(ticker, data):
 def display_fundamental_analysis(ticker, api_source, api_key=None):
     st.subheader("Analisis Fundamental")
     
-    if api_source == "Alpha Vantage" and not api_key:
-        st.warning("API Key diperlukan untuk Alpha Vantage")
+    if api_source == "Financial Modeling Prep" and not api_key:
+        st.warning("API Key diperlukan untuk Financial Modeling Prep")
         return
     
     try:
         if api_source == "Yahoo Finance":
             display_yfinance_fundamental(ticker)
-        elif api_source == "Alpha Vantage":
-            display_alpha_vantage_fundamental(ticker, api_key)
         elif api_source == "Financial Modeling Prep":
             display_fmp_fundamental(ticker, api_key)
         else:
@@ -211,54 +213,64 @@ def display_yfinance_fundamental(ticker):
     except Exception as e:
         st.error(f"Error mengambil data dari Yahoo Finance: {str(e)}")
 
-# Fungsi fundamental dengan Alpha Vantage
-def display_alpha_vantage_fundamental(ticker, api_key):
+# Fungsi fundamental dengan Financial Modeling Prep
+def display_fmp_fundamental(ticker, api_key):
     try:
-        from alpha_vantage.fundamentaldata import FundamentalData
-        
-        # Bersihkan ticker: hilangkan suffix .JK atau pasar lainnya
+        # Bersihkan ticker untuk FMP (tanpa suffix pasar)
         clean_ticker = ticker.split('.')[0]
         
-        # Ambil data dari Alpha Vantage
-        fund = FundamentalData(key=api_key, output_format='pandas')
-        data, meta_data = fund.get_company_overview(symbol=clean_ticker)
+        # Ambil data profil perusahaan
+        profile_url = f"https://financialmodelingprep.com/api/v3/profile/{clean_ticker}?apikey={api_key}"
+        profile_response = requests.get(profile_url)
+        profile_data = profile_response.json()
         
-        # Periksa apakah data kosong atau tidak valid
-        if data.empty or 'Error Message' in meta_data:
-            st.warning(f"Tidak ada data fundamental untuk {ticker} (clean ticker: {clean_ticker})")
-            st.info("Alpha Vantage hanya menyediakan data untuk saham AS dan beberapa saham internasional terbatas.")
+        if not profile_data or 'Error' in profile_data:
+            st.error(f"Tidak dapat mengambil data profil untuk {ticker} dari Financial Modeling Prep")
             return
+        
+        profile = profile_data[0] if isinstance(profile_data, list) else profile_data
+        
+        # Ambil data rasio keuangan
+        ratios_url = f"https://financialmodelingprep.com/api/v3/ratios-ttm/{clean_ticker}?apikey={api_key}"
+        ratios_response = requests.get(ratios_url)
+        ratios_data = ratios_response.json()
+        
+        if not ratios_data or 'Error' in ratios_data:
+            st.warning(f"Tidak dapat mengambil data rasio untuk {ticker}")
+            ratios = {}
+        else:
+            ratios = ratios_data[0] if isinstance(ratios_data, list) else ratios_data
         
         # Tampilkan metrik utama
         cols = st.columns(4)
+        
+        # Siapkan data metrik
         metrics = [
-            ('PER', 'PERatio', 'x'),
-            ('PBV', 'PriceToBookRatio', 'x'),
-            ('ROE', 'ReturnOnEquityTTM', '%'),
-            ('Dividend Yield', 'DividendYield', '%'),
-            ('EPS', 'EPS', ''),
-            ('DER', 'DebtToEquity', 'x'),
-            ('Profit Margin', 'GrossProfitTTM', '%'),
-            ('Pertumbuhan Laba', 'QuarterlyEarningsGrowthYOY', '%')
+            ('PER', 'pe', 'x', profile.get('pe', 'N/A')),
+            ('PBV', 'pb', 'x', profile.get('pb', 'N/A')),
+            ('ROE', 'returnOnEquityTTM', '%', ratios.get('returnOnEquityTTM', 'N/A')),
+            ('Dividend Yield', 'dividendYield', '%', profile.get('lastDiv', 'N/A')),
+            ('EPS', 'eps', '', profile.get('eps', 'N/A')),
+            ('DER', 'debtEquityRatio', 'x', profile.get('debtEquityRatio', 'N/A')),
+            ('Profit Margin', 'profitMarginTTM', '%', ratios.get('profitMarginTTM', 'N/A')),
+            ('Pertumbuhan Laba', 'earningsGrowth', '%', profile.get('earningsGrowth', 'N/A'))
         ]
         
-        for i, (name, key, unit) in enumerate(metrics):
-            value = data.get(key, ['N/A'])[0]
-            if value != 'N/A' and isinstance(value, str) and value.replace('.','',1).isdigit():
-                value = float(value)
+        for i, (name, key, unit, value) in enumerate(metrics):
+            if value != 'N/A' and isinstance(value, (int, float)):
                 cols[i%4].metric(name, f"{value:.2f}{unit}")
             else:
                 cols[i%4].metric(name, "N/A")
         
         # Analisis kualitatif
         st.subheader("Analisis Kualitatif")
-        description = data.get('Description', ['N/A'])[0]
+        description = profile.get('description', 'N/A')
         st.write(f"**Deskripsi Perusahaan:** {description[:500]}{'...' if len(description) > 500 else ''}")
         
         # Rekomendasi valuasi
         st.subheader("Rekomendasi Valuasi")
-        per_value = data.get('PERatio', ['N/A'])[0]
-        if per_value != 'N/A' and per_value.replace('.','',1).isdigit():
+        per_value = profile.get('pe', 'N/A')
+        if per_value != 'N/A' and isinstance(per_value, (int, float)):
             per = float(per_value)
             status = "Undervalued" if per < 15 else "Overvalued" if per > 25 else "Fair Value"
             st.markdown(f"""
@@ -275,60 +287,10 @@ def display_alpha_vantage_fundamental(ticker, api_key):
         else:
             st.warning("Data PER tidak tersedia untuk valuasi")
             
-        st.info("Sumber data: Alpha Vantage")
+        st.info("Sumber data: Financial Modeling Prep")
     
-    except ValueError as e:
-        if "Invalid API call" in str(e):
-            st.warning(f"Data fundamental tidak tersedia untuk {ticker} (clean ticker: {clean_ticker}) di Alpha Vantage")
-            st.info("Hanya saham AS yang didukung untuk analisis fundamental")
-        else:
-            st.error(f"Error: {str(e)}")
-    except KeyError:
-        st.error("Format respons API tidak dikenali. Mungkin terjadi perubahan pada Alpha Vantage API.")
     except Exception as e:
-        st.error(f"Error fetching fundamental data: {str(e)}")
-
-# Fungsi fundamental dengan Financial Modeling Prep (contoh)
-def display_fmp_fundamental(ticker, api_key):
-    if not api_key:
-        st.warning("API Key diperlukan untuk Financial Modeling Prep")
-        return
-        
-    st.info("""
-    **Contoh integrasi Financial Modeling Prep**
-    
-    Untuk implementasi nyata, Anda perlu:
-    1. Daftar di https://financialmodelingprep.com/developer
-    2. Dapatkan API Key gratis
-    3. Gunakan endpoint seperti:
-       - https://financialmodelingprep.com/api/v3/profile/{ticker}?apikey={api_key}
-       - https://financialmodelingprep.com/api/v3/ratios-ttm/{ticker}?apikey={api_key}
-    """)
-    
-    st.warning("Implementasi aktual memerlukan kode tambahan untuk menghubungi API Financial Modeling Prep")
-    
-    # Contoh kode untuk implementasi nyata:
-    """
-    import requests
-    
-    # Ambil data profil perusahaan
-    profile_url = f"https://financialmodelingprep.com/api/v3/profile/{ticker}?apikey={api_key}"
-    profile_response = requests.get(profile_url)
-    profile_data = profile_response.json()[0] if profile_response.status_code == 200 else {}
-    
-    # Ambil rasio keuangan
-    ratios_url = f"https://financialmodelingprep.com/api/v3/ratios-ttm/{ticker}?apikey={api_key}"
-    ratios_response = requests.get(ratios_url)
-    ratios_data = ratios_response.json()[0] if ratios_response.status_code == 200 else {}
-    
-    # Tampilkan data
-    if profile_data and ratios_data:
-        cols = st.columns(3)
-        cols[0].metric("PER", f"{ratios_data.get('priceEarningsRatioTTM', 'N/A'):.2f}x")
-        cols[1].metric("PBV", f"{ratios_data.get('priceToBookRatioTTM', 'N/A'):.2f}x")
-        cols[2].metric("ROE", f"{ratios_data.get('returnOnEquityTTM', 'N/A'):.2f}%")
-        # ... dan seterusnya
-    """
+        st.error(f"Error mengambil data dari Financial Modeling Prep: {str(e)}")
 
 # Fungsi analisis teknikal
 def display_technical_analysis(ticker, data):
