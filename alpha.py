@@ -96,27 +96,27 @@ def fetch_stock_data(ticker):
 
 # Fungsi tampilkan profil saham - PERBAIKAN UTAMA
 def display_stock_profile(ticker, data):
-    if data.empty:
+    if data.empty or len(data) < 2:
+        st.error("Data tidak cukup untuk menampilkan profil saham")
         return
     
     st.subheader(f"Profil Saham: {ticker}")
     stock = yf.Ticker(ticker)
     info = stock.info
     
-    # Ambil nilai sebagai float tanpa konversi eksplisit
-    last_close = data['Close'].iloc[-1]
-    prev_close = data['Close'].iloc[-2]
-    volume = data['Volume'].iloc[-1]
+    # PERBAIKAN: Konversi ke float
+    last_close = float(data['Close'].iloc[-1])
+    prev_close = float(data['Close'].iloc[-2])
+    volume = float(data['Volume'].iloc[-1])
     
     col1, col2, col3 = st.columns(3)
     with col1:
         currency = "$" if '.' in ticker else "Rp"
         st.metric("Harga Terakhir", f"{currency}{last_close:.2f}")
         
-        # Hitung perubahan persentase
         change_pct = ((last_close - prev_close) / prev_close * 100)
         st.metric("Perubahan 1 Hari", f"{change_pct:.2f}%", delta_color="inverse")
-    
+   
     with col2:
         st.metric("Volume", f"{volume:,.0f}")
         market_cap = info.get('marketCap', 'N/A')
@@ -242,9 +242,9 @@ def display_technical_analysis(ticker, data):
     last_rsi = data['RSI'].iloc[-1]
     
     # PERBAIKAN: Ambil nilai sebagai float
-    close_last = data['Close'].iloc[-1]
-    ma50_last = data['MA50'].iloc[-1]
-    ma200_last = data['MA200'].iloc[-1]
+    close_last = float(data['Close'].iloc[-1])
+    ma50_last = float(data['MA50'].iloc[-1])
+    ma200_last = float(data['MA200'].iloc[-1])
     
     # Cek apakah cukup data untuk analisis
     if len(data) < 200:
